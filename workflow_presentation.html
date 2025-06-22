@@ -482,22 +482,41 @@
         // 全局变量
         let workflowsInfo = {};
         let isMobileOptimized = false;
+        let isHttpsEnvironment = location.protocol === 'https:';
         
-        // 工作流配置（隐藏敏感信息）
+        // 工作流配置（根据环境自适应）
         const workflows = {
             qa: {
                 name: "Q&A工作流",
                 key: "app-kMUrnXPk87MqRXqiexeakO7T",
-                baseUrl: "https://frp-act.com:38699",
+                // 根据环境选择协议
+                baseUrl: isHttpsEnvironment ? "https://frp-act.com:38699" : "https://frp-act.com:38699",
                 params: ["q1"]
             },
             stock: {
                 name: "股票工作流", 
                 key: "app-vdFNo8tzLB5e66dhSDvckayH",
-                baseUrl: "https://frp-act.com:38699",
+                baseUrl: isHttpsEnvironment ? "https://frp-act.com:38699" : "https://frp-act.com:38699",
                 params: ["stock_code", "quantity", "cost"]
             }
         };
+
+        // 检测当前环境
+        function detectEnvironment() {
+            const isGitHubPages = location.hostname.includes('github.io') || location.hostname.includes('githubusercontent.com');
+            const isLocalhost = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+            const isHttps = location.protocol === 'https:';
+            
+            console.log('环境检测:', {
+                hostname: location.hostname,
+                protocol: location.protocol,
+                isGitHubPages,
+                isLocalhost,
+                isHttps
+            });
+            
+            return { isGitHubPages, isLocalhost, isHttps };
+        }
 
         // 测试LLM连接
         async function testLLMConnection() {
@@ -819,6 +838,7 @@ ${workflowDescriptions}
         async function executeWorkflow(workflowType, params) {
             const workflow = workflows[workflowType];
             const resultDiv = document.getElementById('workflowResult');
+            const env = detectEnvironment();
 
             try {
                 let inputs = {};
@@ -826,7 +846,6 @@ ${workflowDescriptions}
                 if (workflowType === 'qa') {
                     inputs = { "q1": params.q1 || params.question || document.getElementById('userQuestion').value };
                 } else if (workflowType === 'stock') {
-                    // 确保所有股票参数都是字符串格式
                     inputs = {
                         "stock_code": String(params.stock_code || "AAPL"),
                         "quantity": String(params.quantity || "100"),
@@ -836,7 +855,17 @@ ${workflowDescriptions}
 
                 console.log('发送到工作流的参数:', inputs);
 
-                const response = await fetch(`${workflow.baseUrl}/v1/workflows/run`, {
+                // 确保使用正确的协议
+                let baseUrl = workflow.baseUrl;
+                if (env.isHttps && baseUrl.startsWith('http:')) {
+                    baseUrl = baseUrl.replace('http:', 'https:');
+                }
+
+                // 选择合适的请求函数
+                const fetchFunction = (isMobileDevice() || isMobileOptimized || env.isGitHubPages) ? 
+                    mobileOptimizedFetch : fetch;
+
+                const response = await fetchFunction(`${baseUrl}/v1/workflows/run`, {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${workflow.key}`,
@@ -845,9 +874,9 @@ ${workflowDescriptions}
                     body: JSON.stringify({
                         inputs: inputs,
                         response_mode: 'blocking',
-                        user: 'intelligent-user-' + Date.now()
+                        user: `${env.isGitHubPages ? 'github-' : ''}intelligent-user-` + Date.now()
                     })
-                });
+                }, env.isGitHubPages ? 30000 : 20000);
 
                 if (!response.ok) {
                     const errorText = await response.text();
@@ -883,7 +912,14 @@ ${workflowDescriptions}
             } catch (error) {
                 showWorkflowStatus('工作流执行失败！', 'error');
                 let currentContent = resultDiv.innerHTML;
-                resultDiv.innerHTML = currentContent + `<div style="color: #f44336; margin-top: 10px;">执行失败: ${error.message}</div>`;
+                
+                // 环境特定的错误处理
+                let errorDetail = error.message;
+                if (env.isGitHubPages && error.message.includes('Mixed Content')) {
+                    errorDetail = 'GitHub Pages环境限制：需要HTTPS服务器';
+                }
+                
+                resultDiv.innerHTML = currentContent + `<div style="color: #f44336; margin-top: 10px;">执行失败: ${errorDetail}</div>`;
             }
         }
 
@@ -1107,12 +1143,15 @@ ${workflowDescriptions}
                    (navigator.maxTouchPoints && navigator.maxTouchPoints > 2 && /MacIntel/.test(navigator.platform));
         }
 
-        // 移动端优化的网络请求函数
-        async function mobileOptimizedFetch(url, options = {}, timeout = 15000) {
+        // 增强的移动端网络请求函数，支持HTTPS环境
+        async function mobileOptimizedFetch(url, options = {}, timeout = 20000) {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), timeout);
             
-            // 移动端优化的请求配置
+            // 检测环境并调整请求策略
+            const env = detectEnvironment();
+            
+            // 移动端和HTTPS环境优化的请求配置
             const mobileOptions = {
                 ...options,
                 signal: controller.signal,
@@ -1123,66 +1162,101 @@ ${workflowDescriptions}
                     ...options.headers,
                     'Accept': 'application/json',
                     'Content-Type': 'application/json',
-                    // 添加移动端友好的头部
+                    // 移动端和HTTPS友好的头部
                     'X-Requested-With': 'XMLHttpRequest',
                     'Cache-Control': 'no-cache',
-                    'Pragma': 'no-cache'
+                    'Pragma': 'no-cache',
+                    // 添加用户代理信息
+                    'User-Agent': navigator.userAgent
                 }
             };
+
+            // 如果是HTTPS环境，确保请求也是HTTPS
+            if (env.isHttps && url.startsWith('http:')) {
+                url = url.replace('http:', 'https:');
+                console.log('HTTPS环境：自动转换为HTTPS请求:', url);
+            }
             
             try {
-                console.log(`移动端请求: ${url}`);
+                console.log(`${env.isGitHubPages ? 'GitHub Pages' : ''}${isMobileDevice() ? '移动端' : ''}请求: ${url}`);
+                
                 const response = await fetch(url, mobileOptions);
                 clearTimeout(timeoutId);
+                
+                // 检查响应
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
                 return response;
             } catch (error) {
                 clearTimeout(timeoutId);
+                console.error('请求失败:', error);
+                
                 if (error.name === 'AbortError') {
                     throw new Error('网络请求超时，请检查网络连接');
                 }
+                
+                // 特殊处理HTTPS/混合内容错误
+                if (error.message.includes('Mixed Content') || 
+                    error.message.includes('blocked') ||
+                    error.message.includes('CORS')) {
+                    throw new Error(`${env.isGitHubPages ? 'GitHub Pages' : 'HTTPS'}环境限制：${error.message}`);
+                }
+                
                 // 移动端特定的错误处理
                 if (error.message.includes('NetworkError') || error.message.includes('Failed to fetch')) {
-                    throw new Error('网络连接失败，请切换网络或稍后重试');
+                    const suggestion = env.isGitHubPages ? 
+                        '请确保目标服务器支持HTTPS且有效的SSL证书' : 
+                        '网络连接失败，请切换网络或稍后重试';
+                    throw new Error(suggestion);
                 }
+                
                 throw error;
             }
         }
 
-        // 强制启用移动端模式
-        function forceMobileMode() {
-            isMobileOptimized = true;
-            document.getElementById('mobileInfo').style.display = 'block';
-            document.getElementById('mobileInfo').textContent = '📱 已启用移动端优化模式';
-            
-            // 自动重试获取工作流信息
-            setTimeout(() => {
-                getWorkflowsInfoWithRetry();
-            }, 1000);
-        }
-
-        // 核心获取逻辑（移动端优化版）
+        // 核心获取逻辑（环境适配版）
         async function getWorkflowsInfoCore() {
             const responseDiv = document.getElementById('apiResponse');
             const statusDiv = document.getElementById('apiStatus');
+            const env = detectEnvironment();
             
             responseDiv.textContent = '获取中...';
             statusDiv.className = 'status loading';
-            statusDiv.textContent = isMobileDevice() ? '移动端优化获取中...' : '获取工作流信息中...';
+            statusDiv.textContent = `${env.isGitHubPages ? 'GitHub Pages' : ''}${isMobileDevice() ? '移动端' : ''}优化获取中...`;
             statusDiv.style.display = 'block';
 
-            let infoText = "=== 工作流详细信息 ===\n\n";
+            // 显示环境信息
+            if (env.isGitHubPages) {
+                document.getElementById('mobileInfo').style.display = 'block';
+                document.getElementById('mobileInfo').innerHTML = `
+                    🌐 GitHub Pages环境检测到<br>
+                    📡 自动使用HTTPS协议<br>
+                    ${isMobileDevice() ? '📱 移动端优化已启用' : ''}
+                `;
+            }
+
+            let infoText = `=== 工作流详细信息 (${env.isGitHubPages ? 'GitHub Pages' : 'Local'}) ===\n\n`;
             let successCount = 0;
             
             for (const [key, workflow] of Object.entries(workflows)) {
                 try {
                     console.log(`获取工作流 ${key} 信息...`);
                     
-                    // 选择请求函数
-                    const fetchFunction = (isMobileDevice() || isMobileOptimized) ? mobileOptimizedFetch : fetch;
-                    const timeout = isMobileDevice() ? 15000 : 8000;
+                    // 根据环境选择请求函数和超时时间
+                    const fetchFunction = (isMobileDevice() || isMobileOptimized || env.isGitHubPages) ? 
+                        mobileOptimizedFetch : fetch;
+                    const timeout = env.isGitHubPages ? 25000 : (isMobileDevice() ? 20000 : 15000);
+                    
+                    // 确保使用HTTPS（如果在HTTPS环境中）
+                    let baseUrl = workflow.baseUrl;
+                    if (env.isHttps && baseUrl.startsWith('http:')) {
+                        baseUrl = baseUrl.replace('http:', 'https:');
+                    }
                     
                     // 获取工作流info
-                    const infoResponse = await fetchFunction(`${workflow.baseUrl}/v1/info`, {
+                    const infoResponse = await fetchFunction(`${baseUrl}/v1/info`, {
                         headers: { 
                             'Authorization': `Bearer ${workflow.key}`,
                             'Accept': 'application/json',
@@ -1193,7 +1267,7 @@ ${workflowDescriptions}
                     }, timeout);
                     
                     // 获取工作流parameters
-                    const paramsResponse = await fetchFunction(`${workflow.baseUrl}/v1/parameters`, {
+                    const paramsResponse = await fetchFunction(`${baseUrl}/v1/parameters`, {
                         headers: { 
                             'Authorization': `Bearer ${workflow.key}`,
                             'Accept': 'application/json',
@@ -1210,7 +1284,7 @@ ${workflowDescriptions}
                         workflowsInfo[key] = { info: infoData, params: paramsData };
                         successCount++;
                         
-                        // 更新界面显示（不显示敏感信息）
+                        // 更新界面显示
                         const workflowTitle = infoData.title || infoData.name || workflow.name;
                         const workflowDesc = infoData.description || '暂无描述';
                         
@@ -1219,52 +1293,67 @@ ${workflowDescriptions}
                                 <strong>工作流 1:</strong> ${workflowTitle}
                                 <div class="workflow-info">${workflowDesc}</div>
                                 <div class="workflow-info">参数: q1 (问答类型)</div>
-                                <div class="workflow-info" style="color: #4CAF50;">✅ 连接正常</div>
+                                <div class="workflow-info" style="color: #4CAF50;">✅ 连接正常 ${env.isGitHubPages ? '(HTTPS)' : ''}</div>
                             `;
                         } else if (key === 'stock') {
                             document.getElementById('workflow2Info').innerHTML = `
                                 <strong>工作流 2:</strong> ${workflowTitle}
                                 <div class="workflow-info">${workflowDesc}</div>
                                 <div class="workflow-info">参数: stock_code, quantity, cost (股票相关)</div>
-                                <div class="workflow-info" style="color: #4CAF50;">✅ 连接正常</div>
+                                <div class="workflow-info" style="color: #4CAF50;">✅ 连接正常 ${env.isGitHubPages ? '(HTTPS)' : ''}</div>
                             `;
                         }
                         
                         infoText += `${workflow.name}:\n`;
                         infoText += `标题: ${workflowTitle}\n`;
                         infoText += `描述: ${workflowDesc}\n`;
-                        infoText += `状态: ✅ 连接成功\n\n`;
+                        infoText += `状态: ✅ 连接成功 ${env.isGitHubPages ? '(HTTPS)' : ''}\n\n`;
                     } else {
                         throw new Error(`HTTP错误 - Info: ${infoResponse.status}, Params: ${paramsResponse.status}`);
                     }
                 } catch (error) {
                     console.error(`获取${workflow.name}信息失败:`, error);
-                    const errorMsg = `获取失败 - ${error.message}`;
-                    infoText += `${workflow.name}: ${errorMsg}\n\n`;
+                    let errorMsg = error.message;
+                    
+                    // 针对GitHub Pages环境的特殊错误处理
+                    if (env.isGitHubPages) {
+                        if (error.message.includes('Mixed Content')) {
+                            errorMsg = 'HTTPS环境限制：目标服务器需要支持HTTPS';
+                        } else if (error.message.includes('CORS')) {
+                            errorMsg = 'CORS跨域限制：服务器需要允许GitHub Pages访问';
+                        } else if (error.message.includes('certificate') || error.message.includes('SSL')) {
+                            errorMsg = 'SSL证书问题：服务器证书无效或过期';
+                        }
+                    }
+                    
+                    infoText += `${workflow.name}: 获取失败 - ${errorMsg}\n\n`;
                     
                     // 更新界面显示错误状态
                     if (key === 'qa') {
                         document.getElementById('workflow1Info').innerHTML = `
                             <strong>工作流 1:</strong> 连接失败
-                            <div class="workflow-info" style="color: #f44336;">❌ ${error.message}</div>
+                            <div class="workflow-info" style="color: #f44336;">❌ ${errorMsg}</div>
                         `;
                     } else if (key === 'stock') {
                         document.getElementById('workflow2Info').innerHTML = `
                             <strong>工作流 2:</strong> 连接失败
-                            <div class="workflow-info" style="color: #f44336;">❌ ${error.message}</div>
+                            <div class="workflow-info" style="color: #f44336;">❌ ${errorMsg}</div>
                         `;
                     }
                 }
             }
 
             if (successCount === 0) {
-                throw new Error('所有工作流连接失败');
+                const errorDetail = env.isGitHubPages ? 
+                    '在GitHub Pages环境中，需要确保目标服务器支持HTTPS并配置了有效的SSL证书' :
+                    '所有工作流连接失败';
+                throw new Error(errorDetail);
             } else if (successCount < Object.keys(workflows).length) {
                 statusDiv.className = 'status error';
                 statusDiv.textContent = `部分工作流连接成功 (${successCount}/${Object.keys(workflows).length})`;
             } else {
                 statusDiv.className = 'status success';
-                statusDiv.textContent = '所有工作流连接成功！';
+                statusDiv.textContent = `所有工作流连接成功！${env.isGitHubPages ? ' (GitHub Pages)' : ''}`;
                 document.getElementById('retrySection').style.display = 'none';
             }
             
@@ -1336,16 +1425,21 @@ ${workflowDescriptions}
         async function testNetworkConnectivity() {
             const statusDiv = document.getElementById('apiStatus');
             const errorDiv = document.getElementById('errorDetails');
+            const env = detectEnvironment();
             
             statusDiv.className = 'status loading';
             statusDiv.textContent = '正在进行网络诊断...';
             statusDiv.style.display = 'block';
             errorDiv.style.display = 'none';
 
+            // 根据环境调整测试URL
             const testUrls = [
                 { url: 'https://httpbin.org/get', name: '通用API测试' },
                 { url: 'https://api.github.com', name: 'GitHub API测试' },
-                { url: workflows.qa.baseUrl, name: '工作流服务器测试' }
+                { 
+                    url: env.isHttps ? workflows.qa.baseUrl.replace('http:', 'https:') : workflows.qa.baseUrl, 
+                    name: '工作流服务器测试' 
+                }
             ];
 
             let results = [];
@@ -1355,8 +1449,9 @@ ${workflowDescriptions}
                     console.log(`测试连接: ${test.url}`);
                     const startTime = Date.now();
                     
-                    const fetchFunction = (isMobileDevice() || isMobileOptimized) ? mobileOptimizedFetch : fetch;
-                    const response = await fetchFunction(test.url, {}, 8000);
+                    const fetchFunction = (isMobileDevice() || isMobileOptimized || env.isGitHubPages) ? 
+                        mobileOptimizedFetch : fetch;
+                    const response = await fetchFunction(test.url, {}, 10000);
                     
                     const endTime = Date.now();
                     
@@ -1377,7 +1472,8 @@ ${workflowDescriptions}
             }
 
             // 显示测试结果
-            let resultText = `网络诊断报告 ${isMobileDevice() ? '(移动端)' : '(桌面端)'}:\n\n`;
+            const envLabel = env.isGitHubPages ? 'GitHub Pages' : (env.isLocalhost ? '本地环境' : '其他环境');
+            let resultText = `网络诊断报告 (${envLabel}${isMobileDevice() ? ' - 移动端' : ''}):\n\n`;
             results.forEach(result => {
                 resultText += `${result.name}:\n`;
                 resultText += `状态: ${result.status}\n`;
@@ -1393,16 +1489,20 @@ ${workflowDescriptions}
             const successCount = results.filter(r => r.status.includes('✅')).length;
             errorDiv.innerHTML = `
                 <strong>诊断结果:</strong> ${successCount}/${results.length} 项测试通过<br><br>
-                <strong>设备信息:</strong><br>
+                <strong>环境信息:</strong><br>
+                运行环境: ${envLabel}<br>
+                协议: ${location.protocol}<br>
                 设备类型: ${isMobileDevice() ? '移动设备' : '桌面设备'}<br>
-                用户代理: ${navigator.userAgent.substring(0, 50)}...<br>
                 网络状态: ${navigator.onLine ? '在线' : '离线'}<br><br>
-                <strong>优化建议:</strong><br>
-                ${successCount === results.length ? 
-                    '✅ 网络连接正常，可以正常使用所有功能' : 
-                    (isMobileDevice() ? 
-                        '• 尝试切换网络环境<br>• 启用移动端优化模式<br>• 清除浏览器数据重试' : 
-                        '• 检查网络设置<br>• 暂时关闭防火墙或VPN<br>• 联系网络管理员'
+                <strong>问题分析:</strong><br>
+                ${env.isGitHubPages ? 
+                    '• GitHub Pages只支持HTTPS，无法访问HTTP服务<br>• 目标服务器需要有效的SSL证书<br>• 需要服务器配置CORS允许跨域访问<br><br><strong>解决方案:</strong><br>• 确保工作流服务器使用HTTPS<br>• 检查SSL证书是否有效<br>• 联系服务器管理员配置CORS' :
+                    (successCount === results.length ? 
+                        '✅ 网络连接正常，可以正常使用所有功能' : 
+                        (isMobileDevice() ? 
+                            '• 尝试切换网络环境<br>• 启用移动端优化模式<br>• 清除浏览器数据重试' : 
+                            '• 检查网络设置<br>• 暂时关闭防火墙或VPN<br>• 联系网络管理员'
+                        )
                     )
                 }
             `;
@@ -1449,11 +1549,21 @@ ${workflowDescriptions}
 
         // 页面加载时的初始化
         document.addEventListener('DOMContentLoaded', function() {
+            const env = detectEnvironment();
             console.log('页面加载完成');
+            console.log('环境信息:', env);
             console.log('是否移动设备:', isMobileDevice());
             
-            if (isMobileDevice()) {
-                // 移动端延迟初始化，给网络更多准备时间
+            // 根据环境显示不同的初始化信息
+            if (env.isGitHubPages) {
+                document.getElementById('mobileInfo').style.display = 'block';
+                document.getElementById('mobileInfo').textContent = '🌐 GitHub Pages环境：正在适配HTTPS协议...';
+                
+                // GitHub Pages环境需要更长的初始化时间
+                setTimeout(() => {
+                    getWorkflowsInfo();
+                }, 3000);
+            } else if (isMobileDevice()) {
                 document.getElementById('mobileInfo').style.display = 'block';
                 document.getElementById('mobileInfo').textContent = '📱 移动端模式：正在初始化...';
                 
@@ -1461,7 +1571,6 @@ ${workflowDescriptions}
                     getWorkflowsInfo();
                 }, 2000);
             } else {
-                // 桌面端立即初始化
                 getWorkflowsInfo();
             }
         });
