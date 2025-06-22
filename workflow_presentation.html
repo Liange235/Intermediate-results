@@ -1,0 +1,1065 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Workflow API 演示</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+        }
+
+        .presentation-container {
+            width: 90%;
+            max-width: 1200px;
+            height: 90vh;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 40px;
+            display: flex;
+            flex-direction: column;
+            gap: 30px;
+            box-shadow: 0 25px 45px rgba(0, 0, 0, 0.1);
+        }
+
+        .content-area {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+            flex: 1;
+        }
+
+        h1 {
+            font-size: 2.5em;
+            text-align: center;
+            margin-bottom: 20px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+            grid-column: 1 / -1;
+        }
+
+        .api-section {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 25px;
+            border-radius: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .api-section h2 {
+            font-size: 1.5em;
+            margin-bottom: 15px;
+            color: #ffd700;
+        }
+
+        .api-button {
+            background: linear-gradient(45deg, #4CAF50, #45a049);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin: 10px 0;
+            width: 100%;
+        }
+
+        .api-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        .api-button:disabled {
+            background: #666;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .api-response {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            min-height: 100px;
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .input-section {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 25px;
+            border-radius: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .input-section h3 {
+            font-size: 1.2em;
+            margin-bottom: 15px;
+            color: #ffd700;
+        }
+
+        .question-input {
+            width: 100%;
+            min-height: 100px;
+            padding: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            font-size: 14px;
+            font-family: inherit;
+            resize: vertical;
+            transition: all 0.3s ease;
+        }
+
+        .question-input:focus {
+            outline: none;
+            border-color: #ffd700;
+            background: rgba(255, 255, 255, 0.15);
+            box-shadow: 0 0 10px rgba(255, 215, 0, 0.3);
+        }
+
+        .question-input::placeholder {
+            color: rgba(255, 255, 255, 0.6);
+        }
+
+        .workflow-button {
+            background: linear-gradient(45deg, #9c27b0, #673ab7);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 15px;
+            width: 100%;
+        }
+
+        .workflow-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        .workflow-button:disabled {
+            background: #666;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .result-section {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 25px;
+            border-radius: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .result-section h3 {
+            font-size: 1.2em;
+            margin-bottom: 15px;
+            color: #ffd700;
+        }
+
+        .workflow-result {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            font-size: 14px;
+            min-height: 150px;
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            word-wrap: break-word;
+            line-height: 1.6;
+        }
+
+        /* Markdown样式 */
+        .workflow-result h1, .workflow-result h2, .workflow-result h3 {
+            color: #ffd700;
+            margin: 15px 0 10px 0;
+        }
+
+        .workflow-result h1 { font-size: 1.5em; }
+        .workflow-result h2 { font-size: 1.3em; }
+        .workflow-result h3 { font-size: 1.1em; }
+
+        .workflow-result p {
+            margin: 10px 0;
+        }
+
+        .workflow-result ul, .workflow-result ol {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+
+        .workflow-result li {
+            margin: 5px 0;
+        }
+
+        .workflow-result code {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .workflow-result pre {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+            margin: 10px 0;
+        }
+
+        .workflow-result blockquote {
+            border-left: 3px solid #ffd700;
+            padding-left: 15px;
+            margin: 10px 0;
+            font-style: italic;
+        }
+
+        .workflow-result strong {
+            font-weight: bold;
+            color: #fff;
+        }
+
+        .workflow-result em {
+            font-style: italic;
+        }
+
+        .config-section {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 25px;
+            border-radius: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            margin-bottom: 20px;
+        }
+
+        .config-section h3 {
+            font-size: 1.2em;
+            margin-bottom: 15px;
+            color: #ffd700;
+        }
+
+        .config-input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            font-size: 14px;
+            margin-bottom: 10px;
+            transition: all 0.3s ease;
+        }
+
+        .config-input:focus {
+            outline: none;
+            border-color: #ffd700;
+            background: rgba(255, 255, 255, 0.15);
+            box-shadow: 0 0 10px rgba(255, 215, 0, 0.3);
+        }
+
+        .config-input::placeholder {
+            color: rgba(255, 255, 255, 0.6);
+        }
+
+        .workflow-selector {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .workflow-info {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.8);
+            margin-top: 10px;
+        }
+
+        .status {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+
+        .status.success {
+            background: rgba(76, 175, 80, 0.2);
+            color: #4CAF50;
+        }
+
+        .status.error {
+            background: rgba(244, 67, 54, 0.2);
+            color: #f44336;
+        }
+
+        .status.loading {
+            background: rgba(255, 193, 7, 0.2);
+            color: #ffc107;
+        }
+
+        .progress-info {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-size: 13px;
+            border-left: 3px solid #ffd700;
+        }
+
+        @media (max-width: 768px) {
+            .content-area {
+                grid-template-columns: 1fr;
+            }
+            
+            h1 {
+                font-size: 2em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="presentation-container">
+        <h1>智能工作流</h1>
+        
+        <div class="content-area">
+            <div class="left-panel">
+                <div class="config-section">
+                    <h3>⚙️ LLM 配置</h3>
+                    <input type="text" id="llmApiUrl" class="config-input" placeholder="LLM API地址 (如: https://xxx/v1/chat/completions)" value="">
+                    <input type="password" id="llmApiKey" class="config-input" placeholder="LLM API Key" value="">
+                    <input type="text" id="llmModel" class="config-input" placeholder="LLM 模型名称 (如: gpt-3.5-turbo)" value="gpt-3.5-turbo">
+                    <button class="api-button" onclick="testLLMConnection()">测试 LLM 连接</button>
+                    <div id="llmStatus" class="status" style="display: none;"></div>
+                </div>
+
+                <div class="api-section">
+                    <h2>🚀 工作流信息</h2>
+                    <div class="workflow-selector" id="workflow1Info">
+                        <strong>工作流 1:</strong> 加载中...
+                        <div class="workflow-info">参数: q1 (问答类型)</div>
+                    </div>
+                    <div class="workflow-selector" id="workflow2Info">
+                        <strong>工作流 2:</strong> 加载中...
+                        <div class="workflow-info">参数: stock_code, quantity, cost (股票相关)</div>
+                    </div>
+                    <button class="api-button" onclick="getWorkflowsInfo()">获取工作流详情</button>
+                    <div id="apiStatus" class="status" style="display: none;"></div>
+                    <div id="apiResponse" class="api-response">点击按钮获取工作流信息...</div>
+                </div>
+
+                <div class="input-section">
+                    <h3>💬 智能输入</h3>
+                    <textarea 
+                        id="userQuestion" 
+                        class="question-input" 
+                        placeholder="请输入您的问题或需求，系统将智能选择合适的工作流..."
+                        rows="4">
+                    </textarea>
+                    <button class="workflow-button" onclick="intelligentWorkflowExecution()">智能执行工作流</button>
+                    <div id="workflowStatus" class="status" style="display: none;"></div>
+                </div>
+            </div>
+
+            <div class="right-panel">
+                <div class="result-section">
+                    <h3>📋 执行结果</h3>
+                    <div id="workflowResult" class="workflow-result">等待工作流执行...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 全局变量
+        let workflowsInfo = {};
+        const workflows = {
+            qa: {
+                name: "Q&A工作流",
+                key: "app-kMUrnXPk87MqRXqiexeakO7T",
+                baseUrl: "https://frp-act.com:38699",
+                params: ["q1"]
+            },
+            stock: {
+                name: "股票工作流", 
+                key: "app-vdFNo8tzLB5e66dhSDvckayH",
+                baseUrl: "https://frp-act.com:38699",
+                params: ["stock_code", "quantity", "cost"]
+            }
+        };
+
+        // 测试LLM连接
+        async function testLLMConnection() {
+            const apiUrl = document.getElementById('llmApiUrl').value.trim();
+            const apiKey = document.getElementById('llmApiKey').value.trim();
+            const model = document.getElementById('llmModel').value.trim() || 'gpt-3.5-turbo';
+            const statusDiv = document.getElementById('llmStatus');
+
+            if (!apiUrl || !apiKey) {
+                showLLMStatus('请填写完整的API地址和Key', 'error');
+                return;
+            }
+
+            showLLMStatus('正在测试连接...', 'loading');
+
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${apiKey}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        model: model,
+                        messages: [{"role": "user", "content": "Hello"}],
+                        max_tokens: 5
+                    })
+                });
+
+                if (response.ok) {
+                    showLLMStatus(`LLM连接成功！(模型: ${model})`, 'success');
+                } else {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+            } catch (error) {
+                showLLMStatus(`连接失败: ${error.message}`, 'error');
+            }
+        }
+
+        // 获取工作流信息
+        async function getWorkflowsInfo() {
+            const statusDiv = document.getElementById('apiStatus');
+            const responseDiv = document.getElementById('apiResponse');
+            
+            statusDiv.className = 'status loading';
+            statusDiv.textContent = '正在获取工作流信息...';
+            statusDiv.style.display = 'block';
+            responseDiv.textContent = '获取中...';
+
+            try {
+                let infoText = "=== 工作流详细信息 ===\n\n";
+                
+                for (const [key, workflow] of Object.entries(workflows)) {
+                    try {
+                        // 获取工作流info
+                        const infoResponse = await fetch(`${workflow.baseUrl}/v1/info`, {
+                            headers: { 'Authorization': `Bearer ${workflow.key}` }
+                        });
+                        
+                        // 获取工作流parameters
+                        const paramsResponse = await fetch(`${workflow.baseUrl}/v1/parameters`, {
+                            headers: { 'Authorization': `Bearer ${workflow.key}` }
+                        });
+
+                        if (infoResponse.ok && paramsResponse.ok) {
+                            const infoData = await infoResponse.json();
+                            const paramsData = await paramsResponse.json();
+                            
+                            workflowsInfo[key] = { info: infoData, params: paramsData };
+                            
+                            // 更新界面显示，不显示敏感信息
+                            const workflowTitle = infoData.title || infoData.name || workflow.name;
+                            const workflowDesc = infoData.description || '暂无描述';
+                            
+                            if (key === 'qa') {
+                                document.getElementById('workflow1Info').innerHTML = `
+                                    <strong>工作流 1:</strong> ${workflowTitle}
+                                    <div class="workflow-info">${workflowDesc}</div>
+                                    <div class="workflow-info">参数: q1 (问答类型)</div>
+                                `;
+                            } else if (key === 'stock') {
+                                document.getElementById('workflow2Info').innerHTML = `
+                                    <strong>工作流 2:</strong> ${workflowTitle}
+                                    <div class="workflow-info">${workflowDesc}</div>
+                                    <div class="workflow-info">参数: stock_code, quantity, cost (股票相关)</div>
+                                `;
+                            }
+                            
+                            infoText += `${workflow.name}:\n`;
+                            infoText += `标题: ${workflowTitle}\n`;
+                            infoText += `描述: ${workflowDesc}\n`;
+                            infoText += `参数结构: ${JSON.stringify(paramsData.user_input_form || workflow.params, null, 2)}\n\n`;
+                        } else {
+                            throw new Error(`获取失败 - Info: ${infoResponse.status}, Params: ${paramsResponse.status}`);
+                        }
+                    } catch (error) {
+                        infoText += `${workflow.name}: 获取失败 - ${error.message}\n\n`;
+                        
+                        // 更新界面显示错误状态
+                        if (key === 'qa') {
+                            document.getElementById('workflow1Info').innerHTML = `
+                                <strong>工作流 1:</strong> 获取失败
+                                <div class="workflow-info" style="color: #f44336;">错误: ${error.message}</div>
+                            `;
+                        } else if (key === 'stock') {
+                            document.getElementById('workflow2Info').innerHTML = `
+                                <strong>工作流 2:</strong> 获取失败
+                                <div class="workflow-info" style="color: #f44336;">错误: ${error.message}</div>
+                            `;
+                        }
+                    }
+                }
+
+                statusDiv.className = 'status success';
+                statusDiv.textContent = '工作流信息获取完成！';
+                responseDiv.textContent = infoText;
+
+            } catch (error) {
+                statusDiv.className = 'status error';
+                statusDiv.textContent = '获取工作流信息失败！';
+                responseDiv.textContent = `错误: ${error.message}`;
+            }
+        }
+
+        // 智能工作流选择和执行
+        async function intelligentWorkflowExecution() {
+            const question = document.getElementById('userQuestion').value.trim();
+            const llmApiUrl = document.getElementById('llmApiUrl').value.trim();
+            const llmApiKey = document.getElementById('llmApiKey').value.trim();
+            const llmModel = document.getElementById('llmModel').value.trim() || 'gpt-3.5-turbo';
+            const workflowStatus = document.getElementById('workflowStatus');
+            const resultDiv = document.getElementById('workflowResult');
+
+            // 重置状态
+            showWorkflowStatus('', 'loading');
+            resultDiv.innerHTML = '';
+
+            try {
+                // 第1步：输入验证
+                updateProgress('📝 步骤 1/5: 验证输入参数...', resultDiv);
+                
+                if (!question) {
+                    throw new Error('请输入问题或需求');
+                }
+
+                if (!llmApiUrl || !llmApiKey) {
+                    throw new Error('请先配置LLM API信息');
+                }
+
+                // 第2步：准备工作流信息
+                updateProgress('📋 步骤 2/5: 准备工作流信息...', resultDiv);
+                
+                let workflowDescriptions = '';
+                try {
+                    if (Object.keys(workflowsInfo).length === 0) {
+                        updateProgress('📋 正在获取工作流信息...', resultDiv);
+                        await getWorkflowsInfoSilent();
+                    }
+
+                    for (const [key, info] of Object.entries(workflowsInfo)) {
+                        if (info && info.info) {
+                            const title = info.info.title || info.info.name || workflows[key].name;
+                            const desc = info.info.description || '暂无描述';
+                            workflowDescriptions += `${key}: ${title} - ${desc}\n`;
+                        }
+                    }
+                } catch (error) {
+                    console.warn('获取工作流详细信息失败，使用默认描述:', error);
+                    workflowDescriptions = 'qa: 问答工作流 - 用于一般问题回答\nstock: 股票工作流 - 用于股票相关计算';
+                }
+
+                // 第3步：分析用户需求
+                updateProgress('🤖 步骤 3/5: LLM分析用户需求...', resultDiv);
+                showWorkflowStatus('正在分析用户需求...', 'loading');
+
+                const decision = await analyzeUserInput(question, llmApiUrl, llmApiKey, llmModel, workflowDescriptions);
+
+                // 第4步：显示选择结果
+                updateProgress('✅ 步骤 4/5: 工作流选择完成', resultDiv);
+                
+                const selectionResult = `
+                    <div style="color: #ffd700; font-weight: bold; margin-bottom: 10px;">🤖 智能选择结果:</div>
+                    <div><strong>选择工作流:</strong> ${workflows[decision.workflow].name}</div>
+                    <div><strong>选择理由:</strong> ${decision.reasoning}</div>
+                    <div><strong>提取参数:</strong> ${JSON.stringify(decision.params, null, 2)}</div>
+                    <hr style="margin: 15px 0; border-color: rgba(255,255,255,0.3);">
+                `;
+                
+                resultDiv.innerHTML += selectionResult;
+
+                // 第5步：执行工作流
+                updateProgress('⚡ 步骤 5/5: 执行工作流...', resultDiv);
+                showWorkflowStatus(`正在执行${workflows[decision.workflow].name}...`, 'loading');
+
+                await executeWorkflow(decision.workflow, decision.params);
+                
+                showWorkflowStatus('智能工作流执行成功！', 'success');
+
+            } catch (error) {
+                showWorkflowStatus('智能执行失败！', 'error');
+                console.error('智能工作流执行错误:', error);
+                
+                resultDiv.innerHTML += `
+                    <div style="color: #f44336; font-weight: bold; margin: 15px 0;">❌ 执行失败</div>
+                    <div style="background: rgba(244,67,54,0.1); padding: 10px; border-radius: 5px;">
+                        <strong>错误信息:</strong> ${error.message}<br>
+                        <strong>可能原因:</strong><br>
+                        • LLM API配置错误或网络问题<br>
+                        • 工作流服务不可用<br>
+                        • 输入参数格式不正确<br>
+                        <strong>建议:</strong> 请检查配置并重试
+                    </div>
+                `;
+            }
+        }
+
+        // 分析用户输入（调整LLM参数提高稳定性）
+        async function analyzeUserInput(question, llmApiUrl, llmApiKey, llmModel, workflowDescriptions) {
+            try {
+                // 构建决策prompt
+                const decisionPrompt = `
+你是一个工作流选择助手。根据用户输入，选择最合适的工作流。
+
+可用工作流信息：
+${workflowDescriptions}
+
+工作流详细说明：
+1. qa工作流: 用于一般问题回答、对话、文本处理等任务，参数为q1(用户问题)
+2. stock工作流: 用于股票相关的计算、分析、交易等任务，参数为stock_code(股票代码)、quantity(数量)、cost(成本)
+
+用户输入: "${question}"
+
+分析规则：
+- 如果用户输入包含以下任一关键词，选择stock工作流：
+  * 英文：stock_code, quantity, cost, stock, shares, price, trading
+  * 中文：股票代码, 股票, 持仓, 数量, 成本, 成本价格, 买入价, 价格, 交易, 投资
+
+如果选择stock工作流，请仔细提取参数，支持中英文：
+- stock_code (股票代码): 可能的表述包括"股票代码"、"代码"、"stock_code"等，值通常是6位数字或字母组合
+- quantity (数量/持仓): 可能的表述包括"持仓"、"数量"、"股数"、"quantity"等，值是数字
+- cost (成本/价格): 可能的表述包括"成本"、"成本价格"、"买入价"、"价格"、"cost"等，值可能含小数点
+
+参数提取示例：
+输入："股票代码 603277 持仓 435 成本价格 15.798"
+提取：stock_code="603277", quantity="435", cost="15.798"
+
+输入："stock_code AAPL quantity 100 cost 150.5"
+提取：stock_code="AAPL", quantity="100", cost="150.5"
+
+请严格按照以下JSON格式回复（不要添加任何其他内容）:
+{
+  "workflow": "qa",
+  "reasoning": "选择理由",
+  "params": {"q1": "用户问题"}
+}
+
+或
+
+{
+  "workflow": "stock", 
+  "reasoning": "选择理由",
+  "params": {"stock_code": "股票代码", "quantity": "数量", "cost": "成本"}
+}
+
+注意：stock工作流的所有参数都必须是字符串格式。
+`;
+
+                const llmResponse = await fetch(llmApiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${llmApiKey}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        model: llmModel,
+                        messages: [{"role": "user", "content": decisionPrompt}],
+                        max_tokens: 400,
+                        temperature: 0.2,
+                        top_p: 0.3
+                    })
+                });
+
+                if (!llmResponse.ok) {
+                    throw new Error(`LLM API调用失败: HTTP ${llmResponse.status}`);
+                }
+
+                const llmData = await llmResponse.json();
+                let decision;
+
+                try {
+                    // 尝试解析LLM返回的JSON
+                    const content = llmData.choices[0].message.content.trim();
+                    console.log('LLM原始返回:', content);
+                    
+                    // 清理可能的markdown代码块标记
+                    const cleanContent = content.replace(/```json\n?|```\n?/g, '');
+                    decision = JSON.parse(cleanContent);
+                } catch (parseError) {
+                    console.warn('LLM返回格式解析失败，使用备用逻辑:', parseError);
+                    decision = fallbackDecision(question);
+                }
+
+                // 验证和修正决策结果
+                if (decision.workflow === 'stock') {
+                    // 验证和修正stock工作流参数
+                    if (!decision.params || typeof decision.params !== 'object') {
+                        decision.params = {};
+                    }
+                    
+                    // 确保所有参数都是字符串格式，使用增强的提取函数
+                    decision.params.stock_code = String(decision.params.stock_code || extractStockCodeEnhanced(question) || "AAPL");
+                    decision.params.quantity = String(decision.params.quantity || extractQuantityEnhanced(question) || "100");
+                    decision.params.cost = String(decision.params.cost || extractCostEnhanced(question) || "150.0");
+                    
+                } else {
+                    // 确保使用qa工作流
+                    decision.workflow = 'qa';
+                    decision.params = { q1: question };
+                    if (!decision.reasoning) {
+                        decision.reasoning = '输入不包含明确的股票相关关键词，选择通用问答工作流';
+                    }
+                }
+
+                console.log('最终决策结果:', decision);
+                return decision;
+
+            } catch (error) {
+                console.warn('LLM分析失败，使用备用决策逻辑:', error);
+                return fallbackDecision(question);
+            }
+        }
+
+        // 备用决策逻辑（确保系统稳定性）
+        function fallbackDecision(question) {
+            const stockKeywords = [
+                // 英文关键词
+                'stock', 'stock_code', 'quantity', 'cost', 'shares', 'price', 'trading',
+                // 中文关键词
+                '股票', '股票代码', '代码', '持仓', '数量', '股数', '成本', '成本价格', '买入价', '价格', '交易', '投资'
+            ];
+            
+            const isStock = stockKeywords.some(keyword => 
+                question.toLowerCase().includes(keyword.toLowerCase())
+            );
+
+            if (isStock) {
+                return {
+                    workflow: 'stock',
+                    reasoning: '检测到股票相关关键词，使用备用逻辑选择股票工作流',
+                    params: {
+                        stock_code: String(extractStockCodeEnhanced(question) || "AAPL"),
+                        quantity: String(extractQuantityEnhanced(question) || "100"),
+                        cost: String(extractCostEnhanced(question) || "150.0")
+                    }
+                };
+            } else {
+                return {
+                    workflow: 'qa',
+                    reasoning: '未检测到股票关键词，使用备用逻辑选择问答工作流',
+                    params: { q1: question }
+                };
+            }
+        }
+
+        // 执行具体工作流
+        async function executeWorkflow(workflowType, params) {
+            const workflow = workflows[workflowType];
+            const resultDiv = document.getElementById('workflowResult');
+
+            try {
+                let inputs = {};
+                
+                if (workflowType === 'qa') {
+                    inputs = { "q1": params.q1 || params.question || document.getElementById('userQuestion').value };
+                } else if (workflowType === 'stock') {
+                    // 确保所有股票参数都是字符串格式
+                    inputs = {
+                        "stock_code": String(params.stock_code || "AAPL"),
+                        "quantity": String(params.quantity || "100"),
+                        "cost": String(params.cost || "150.0")
+                    };
+                }
+
+                console.log('发送到工作流的参数:', inputs);
+
+                const response = await fetch(`${workflow.baseUrl}/v1/workflows/run`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${workflow.key}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        inputs: inputs,
+                        response_mode: 'blocking',
+                        user: 'intelligent-user-' + Date.now()
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+
+                const data = await response.json();
+                showWorkflowStatus('工作流执行成功！', 'success');
+
+                // 显示结果（保留之前的选择信息）
+                let currentContent = resultDiv.innerHTML;
+                let resultHtml = '<div style="color: #ffd700; font-weight: bold; margin-top: 15px;">📋 工作流执行结果:</div>';
+
+                if (data.data && data.data.outputs) {
+                    for (const [key, value] of Object.entries(data.data.outputs)) {
+                        resultHtml += `<div style="margin-top: 10px;">`;
+                        resultHtml += `<strong style="color: #4CAF50;">${key}:</strong><br>`;
+                        if (typeof value === 'string') {
+                            resultHtml += renderMarkdown(value);
+                        } else {
+                            resultHtml += `<pre style="background: rgba(255,255,255,0.1); padding: 8px; border-radius: 3px; font-size: 12px;">${JSON.stringify(value, null, 2)}</pre>`;
+                        }
+                        resultHtml += `</div>`;
+                    }
+                } else if (data.answer) {
+                    resultHtml += `<div style="margin-top: 10px;"><strong style="color: #4CAF50;">回答:</strong><br>${renderMarkdown(data.answer)}</div>`;
+                } else {
+                    resultHtml += `<pre style="margin-top: 10px; background: rgba(255,255,255,0.1); padding: 8px; border-radius: 3px; font-size: 12px;">${JSON.stringify(data, null, 2)}</pre>`;
+                }
+
+                resultDiv.innerHTML = currentContent + resultHtml;
+
+            } catch (error) {
+                showWorkflowStatus('工作流执行失败！', 'error');
+                let currentContent = resultDiv.innerHTML;
+                resultDiv.innerHTML = currentContent + `<div style="color: #f44336; margin-top: 10px;">执行失败: ${error.message}</div>`;
+            }
+        }
+
+        function showLLMStatus(message, type) {
+            const llmStatus = document.getElementById('llmStatus');
+            llmStatus.className = `status ${type}`;
+            llmStatus.textContent = message;
+            llmStatus.style.display = 'block';
+        }
+
+        function showWorkflowStatus(message, type) {
+            const workflowStatus = document.getElementById('workflowStatus');
+            if (message) {
+                workflowStatus.className = `status ${type}`;
+                workflowStatus.textContent = message;
+                workflowStatus.style.display = 'block';
+            } else {
+                workflowStatus.style.display = 'none';
+            }
+        }
+
+        // 简单的Markdown渲染器
+        function renderMarkdown(text) {
+            if (typeof text !== 'string') return text;
+            
+            let html = text
+                // 转义HTML特殊字符
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                
+                // 代码块（三个反引号）
+                .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
+                
+                // 行内代码
+                .replace(/`([^`]+)`/g, '<code>$1</code>')
+                
+                // 标题
+                .replace(/^### (.*$)/gm, '<h3>$1</h3>')
+                .replace(/^## (.*$)/gm, '<h2>$1</h2>')
+                .replace(/^# (.*$)/gm, '<h1>$1</h1>')
+                
+                // 粗体
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                .replace(/__(.*?)__/g, '<strong>$1</strong>')
+                
+                // 斜体
+                .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                .replace(/_(.*?)_/g, '<em>$1</em>')
+                
+                // 引用
+                .replace(/^> (.*$)/gm, '<blockquote>$1</blockquote>')
+                
+                // 无序列表
+                .replace(/^\* (.*$)/gm, '<li>$1</li>')
+                .replace(/^- (.*$)/gm, '<li>$1</li>')
+                
+                // 有序列表
+                .replace(/^\d+\. (.*$)/gm, '<li>$1</li>')
+                
+                // 换行
+                .replace(/\n/g, '<br>');
+            
+            // 包装列表项
+            html = html.replace(/(<li>.*<\/li>)/g, function(match) {
+                if (!match.includes('<ul>') && !match.includes('<ol>')) {
+                    return '<ul>' + match + '</ul>';
+                }
+                return match;
+            });
+            
+            // 清理多余的br标签
+            html = html.replace(/<br><br>/g, '<br>');
+            
+            return html;
+        }
+
+        // 增强的股票代码提取函数（支持中英文）
+        function extractStockCodeEnhanced(text) {
+            // 中英文关键词后的股票代码
+            const patterns = [
+                /(?:股票代码|代码|stock_code)[:\s]*([A-Za-z0-9]+)/i,
+                /(?:股票|stock)[:\s]*([A-Za-z0-9]+)/i
+            ];
+            
+            for (const pattern of patterns) {
+                const match = text.match(pattern);
+                if (match) {
+                    return match[1];
+                }
+            }
+            
+            // 查找6位数字股票代码（中国股票）
+            const numberMatch = text.match(/\b\d{6}\b/);
+            if (numberMatch) {
+                return numberMatch[0];
+            }
+            
+            // 查找3-5位字母股票代码（美股等）
+            const letterMatch = text.match(/\b[A-Z]{3,5}\b/);
+            if (letterMatch) {
+                return letterMatch[0];
+            }
+            
+            return null;
+        }
+
+        // 增强的数量提取函数（支持中英文）
+        function extractQuantityEnhanced(text) {
+            // 中英文关键词后的数量
+            const patterns = [
+                /(?:持仓|数量|股数|quantity)[:\s]*(\d+(?:\.\d+)?)/i,
+                /(?:买入|持有)[:\s]*(\d+)/i
+            ];
+            
+            for (const pattern of patterns) {
+                const match = text.match(pattern);
+                if (match) {
+                    return match[1];
+                }
+            }
+            
+            // 查找文本中的数字，排除可能是股票代码的6位数
+            const numbers = text.match(/\b\d+\b/g);
+            if (numbers) {
+                // 过滤掉6位数字（可能是股票代码）和小数点数字（可能是价格）
+                const filtered = numbers.filter(num => 
+                    num.length !== 6 && 
+                    !text.includes(num + '.') // 不是小数的整数部分
+                );
+                
+                if (filtered.length > 0) {
+                    return filtered[0];
+                }
+            }
+            
+            return null;
+        }
+
+        // 增强的成本提取函数（支持中英文）
+        function extractCostEnhanced(text) {
+            // 中英文关键词后的成本/价格
+            const patterns = [
+                /(?:成本|成本价格|买入价|价格|cost)[:\s]*(\d+(?:\.\d+)?)/i,
+                /(?:单价|每股)[:\s]*(\d+(?:\.\d+)?)/i
+            ];
+            
+            for (const pattern of patterns) {
+                const match = text.match(pattern);
+                if (match) {
+                    return match[1];
+                }
+            }
+            
+            // 查找包含小数点的数字（通常是价格）
+            const priceMatches = text.match(/\d+\.\d+/g);
+            if (priceMatches) {
+                return priceMatches[0]; // 第一个小数通常是价格
+            }
+            
+            // 如果没有小数，查找可能的价格数字
+            const numbers = text.match(/\b\d+\b/g);
+            if (numbers && numbers.length >= 2) {
+                // 通常最后一个数字是价格
+                return numbers[numbers.length - 1];
+            }
+            
+            return null;
+        }
+
+        // 保留原有函数作为备用
+        function extractStockCodeAdvanced(text) {
+            return extractStockCodeEnhanced(text);
+        }
+
+        function extractQuantity(text) {
+            return extractQuantityEnhanced(text);
+        }
+
+        function extractCost(text) {
+            return extractCostEnhanced(text);
+        }
+
+        // 静默获取工作流信息
+        async function getWorkflowsInfoSilent() {
+            for (const [key, workflow] of Object.entries(workflows)) {
+                try {
+                    const infoResponse = await fetch(`${workflow.baseUrl}/v1/info`, {
+                        headers: { 'Authorization': `Bearer ${workflow.key}` }
+                    });
+                    
+                    const paramsResponse = await fetch(`${workflow.baseUrl}/v1/parameters`, {
+                        headers: { 'Authorization': `Bearer ${workflow.key}` }
+                    });
+
+                    if (infoResponse.ok && paramsResponse.ok) {
+                        const infoData = await infoResponse.json();
+                        const paramsData = await paramsResponse.json();
+                        workflowsInfo[key] = { info: infoData, params: paramsData };
+                    }
+                } catch (error) {
+                    console.warn(`获取${workflow.name}信息失败:`, error);
+                }
+            }
+        }
+
+        // 更新进度显示
+        function updateProgress(message, container) {
+            const progressDiv = document.createElement('div');
+            progressDiv.className = 'progress-info';
+            progressDiv.textContent = message;
+            container.appendChild(progressDiv);
+            
+            // 自动滚动到底部
+            container.scrollTop = container.scrollHeight;
+        }
+
+        // 页面加载时获取工作流信息
+        document.addEventListener('DOMContentLoaded', function() {
+            getWorkflowsInfo();
+        });
+    </script>
+</body>
+</html>
