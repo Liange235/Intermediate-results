@@ -448,6 +448,7 @@
                         <h4 style="color: #ffd700; margin-bottom: 10px;">🔄 连接问题？</h4>
                         <button class="retry-button" onclick="getWorkflowsInfoWithRetry()">重试获取</button>
                         <button class="retry-button" onclick="testNetworkConnectivity()">网络诊断</button>
+                        <button class="retry-button" onclick="enableCorsProxy()">启用CORS代理</button>
                         <button class="retry-button" onclick="forceMobileMode()">强制移动端模式</button>
                     </div>
                     
@@ -482,8 +483,9 @@
         // 全局变量
         let workflowsInfo = {};
         let isMobileOptimized = false;
+        let useCorsProxy = false;
         
-        // 工作流配置（保持不变）
+        // 工作流配置
         const workflows = {
             qa: {
                 name: "Q&A工作流",
@@ -498,6 +500,13 @@
                 params: ["stock_code", "quantity", "cost"]
             }
         };
+
+        // CORS代理列表
+        const corsProxies = [
+            'https://api.allorigins.win/raw?url=',
+            'https://cors-anywhere.herokuapp.com/',
+            'https://corsproxy.io/?'
+        ];
 
         // 检测当前环境
         function detectEnvironment() {
@@ -569,6 +578,91 @@
             }, 1000);
         }
 
+        // 启用CORS代理模式
+        function enableCorsProxy() {
+            useCorsProxy = true;
+            document.getElementById('mobileInfo').style.display = 'block';
+            document.getElementById('mobileInfo').textContent = '🌐 已启用CORS代理模式';
+            
+            setTimeout(() => {
+                getWorkflowsInfoWithRetry();
+            }, 1000);
+        }
+
+        // 构建代理URL
+        function buildProxyUrl(originalUrl, proxyIndex = 0) {
+            if (!useCorsProxy || proxyIndex >= corsProxies.length) {
+                return originalUrl;
+            }
+            return corsProxies[proxyIndex] + encodeURIComponent(originalUrl);
+        }
+
+        // 带代理重试的fetch函数
+        async function fetchWithProxyRetry(url, options = {}, timeout = 15000) {
+            // 首先尝试直接请求
+            try {
+                console.log(`直接请求: ${url}`);
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), timeout);
+                
+                const response = await fetch(url, {
+                    ...options,
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
+                
+                if (response.ok) {
+                    return response;
+                }
+                
+                throw new Error(`HTTP ${response.status}`);
+            } catch (directError) {
+                console.log(`直接请求失败: ${directError.message}`);
+                
+                // 如果启用了CORS代理，尝试使用代理
+                if (useCorsProxy) {
+                    for (let i = 0; i < corsProxies.length; i++) {
+                        try {
+                            const proxyUrl = buildProxyUrl(url, i);
+                            console.log(`尝试代理 ${i + 1}: ${corsProxies[i]}`);
+                            
+                            const controller = new AbortController();
+                            const timeoutId = setTimeout(() => controller.abort(), timeout);
+                            
+                            const proxyOptions = {
+                                ...options,
+                                signal: controller.signal,
+                                headers: {
+                                    ...options.headers
+                                }
+                            };
+                            
+                            // 某些代理不支持Authorization头部
+                            if (corsProxies[i].includes('allorigins.win')) {
+                                delete proxyOptions.headers['Authorization'];
+                            }
+                            
+                            const response = await fetch(proxyUrl, proxyOptions);
+                            clearTimeout(timeoutId);
+                            
+                            if (response.ok) {
+                                console.log(`代理 ${i + 1} 成功`);
+                                return response;
+                            }
+                            
+                            throw new Error(`Proxy HTTP ${response.status}`);
+                        } catch (proxyError) {
+                            console.log(`代理 ${i + 1} 失败: ${proxyError.message}`);
+                            continue;
+                        }
+                    }
+                }
+                
+                throw directError;
+            }
+        }
+
         // 移动端优化的网络请求函数
         async function mobileOptimizedFetch(url, options = {}, timeout = 20000) {
             const controller = new AbortController();
@@ -611,15 +705,14 @@
             }
         }
 
-        // 核心获取逻辑（简化版本）
+        // 核心获取逻辑（增强代理支持版本）
         async function getWorkflowsInfoCore() {
             const responseDiv = document.getElementById('apiResponse');
             const statusDiv = document.getElementById('apiStatus');
-            const env = detectEnvironment();
             
             responseDiv.textContent = '获取中...';
             statusDiv.className = 'status loading';
-            statusDiv.textContent = '正在获取工作流信息...';
+            statusDiv.textContent = `正在获取工作流信息...${useCorsProxy ? ' (CORS代理模式)' : ''}`;
             statusDiv.style.display = 'block';
 
             let infoText = `=== 工作流详细信息 ===\n\n`;
@@ -629,8 +722,9 @@
                 try {
                     console.log(`获取工作流 ${key} 信息...`);
                     
-                    // PC端使用标准fetch，移动端使用优化版本
-                    const fetchFunction = isMobileOptimized ? mobileOptimizedFetch : fetch;
+                    // 选择请求函数
+                    const fetchFunction = isMobileOptimized ? mobileOptimizedFetch : 
+                                        (useCorsProxy ? fetchWithProxyRetry : fetch);
                     
                     // 获取工作流info
                     const infoResponse = await fetchFunction(`${workflow.baseUrl}/v1/info`, {
@@ -666,21 +760,21 @@
                                 <strong>工作流 1:</strong> ${workflowTitle}
                                 <div class="workflow-info">${workflowDesc}</div>
                                 <div class="workflow-info">参数: q1 (问答类型)</div>
-                                <div class="workflow-info" style="color: #4CAF50;">✅ 连接正常</div>
+                                <div class="workflow-info" style="color: #4CAF50;">✅ 连接正常 ${useCorsProxy ? '(代理)' : ''}</div>
                             `;
                         } else if (key === 'stock') {
                             document.getElementById('workflow2Info').innerHTML = `
                                 <strong>工作流 2:</strong> ${workflowTitle}
                                 <div class="workflow-info">${workflowDesc}</div>
                                 <div class="workflow-info">参数: stock_code, quantity, cost (股票相关)</div>
-                                <div class="workflow-info" style="color: #4CAF50;">✅ 连接正常</div>
+                                <div class="workflow-info" style="color: #4CAF50;">✅ 连接正常 ${useCorsProxy ? '(代理)' : ''}</div>
                             `;
                         }
                         
                         infoText += `${workflow.name}:\n`;
                         infoText += `标题: ${workflowTitle}\n`;
                         infoText += `描述: ${workflowDesc}\n`;
-                        infoText += `状态: ✅ 连接成功\n\n`;
+                        infoText += `状态: ✅ 连接成功 ${useCorsProxy ? '(通过CORS代理)' : ''}\n\n`;
                     } else {
                         throw new Error(`HTTP错误 - Info: ${infoResponse.status}, Params: ${paramsResponse.status}`);
                     }
@@ -712,14 +806,80 @@
                 statusDiv.textContent = `部分工作流连接成功 (${successCount}/${Object.keys(workflows).length})`;
             } else {
                 statusDiv.className = 'status success';
-                statusDiv.textContent = `所有工作流连接成功！`;
+                statusDiv.textContent = `所有工作流连接成功！${useCorsProxy ? ' (代理模式)' : ''}`;
                 document.getElementById('retrySection').style.display = 'none';
             }
             
             responseDiv.textContent = infoText;
         }
 
-        // 网络连通性测试（简化版）
+        // 获取工作流信息（增强错误处理）
+        async function getWorkflowsInfo() {
+            const errorDiv = document.getElementById('errorDetails');
+            errorDiv.style.display = 'none';
+            
+            try {
+                await getWorkflowsInfoCore();
+            } catch (error) {
+                console.error('获取工作流信息失败:', error);
+                document.getElementById('retrySection').style.display = 'block';
+                
+                errorDiv.innerHTML = `
+                    <strong>连接失败:</strong><br>
+                    ${error.message}<br><br>
+                    <strong>可能原因:</strong><br>
+                    • CORS跨域限制（最常见）<br>
+                    • 工作流服务器网络连接问题<br>
+                    • 网络防火墙限制<br><br>
+                    <strong>解决方法:</strong><br>
+                    • 点击"启用CORS代理"尝试代理访问<br>
+                    • 点击"网络诊断"查看详细信息<br>
+                    • 如果是移动端，可以尝试"强制移动端模式"
+                `;
+                errorDiv.style.display = 'block';
+            }
+        }
+
+        // 带重试的获取工作流信息
+        async function getWorkflowsInfoWithRetry(maxRetries = 3) {
+            const statusDiv = document.getElementById('apiStatus');
+            const errorDiv = document.getElementById('errorDetails');
+            
+            for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                try {
+                    statusDiv.className = 'status loading';
+                    statusDiv.textContent = `第${attempt}次尝试获取工作流信息...`;
+                    statusDiv.style.display = 'block';
+                    
+                    await getWorkflowsInfoCore();
+                    return; // 成功则退出
+                    
+                } catch (error) {
+                    console.error(`第${attempt}次尝试失败:`, error);
+                    
+                    if (attempt === maxRetries) {
+                        statusDiv.className = 'status error';
+                        statusDiv.textContent = `获取失败 (已重试${maxRetries}次)`;
+                        
+                        errorDiv.innerHTML = `
+                            <strong>重试失败详情:</strong><br>
+                            ${error.message}<br><br>
+                            <strong>建议解决方案:</strong><br>
+                            • 检查网络连接状态<br>
+                            • 确认工作流服务器是否正常运行<br>
+                            • 尝试点击"启用CORS代理"解决跨域问题<br>
+                            • 联系技术支持
+                        `;
+                        errorDiv.style.display = 'block';
+                        break;
+                    } else {
+                        await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
+                    }
+                }
+            }
+        }
+
+        // 网络连通性测试
         async function testNetworkConnectivity() {
             const statusDiv = document.getElementById('apiStatus');
             const errorDiv = document.getElementById('errorDetails');
@@ -794,98 +954,97 @@
                 <strong>问题分析:</strong><br>
                 ${workflowServerOk ? 
                     '✅ 工作流服务器连接正常，可以正常使用所有功能' :
-                    '❌ 工作流服务器连接失败，请检查网络连接或联系管理员'
+                    '❌ 工作流服务器连接失败，建议使用CORS代理模式'
                 }
             `;
             errorDiv.style.display = 'block';
         }
 
-        // 获取工作流信息
-        async function getWorkflowsInfo() {
+        // 全局状态显示函数
+        function showLLMStatus(message, type) {
+            const llmStatus = document.getElementById('llmStatus');
+            llmStatus.className = `status ${type}`;
+            llmStatus.textContent = message;
+            llmStatus.style.display = 'block';
+        }
+
+        function showWorkflowStatus(message, type) {
+            const workflowStatus = document.getElementById('workflowStatus');
+            if (message) {
+                workflowStatus.className = `status ${type}`;
+                workflowStatus.textContent = message;
+                workflowStatus.style.display = 'block';
+            } else {
+                workflowStatus.style.display = 'none';
+            }
+        }
+
+        // 智能执行工作流
+        async function intelligentWorkflowExecution() {
+            const userQuestion = document.getElementById('userQuestion').value.trim();
+            const statusDiv = document.getElementById('workflowStatus');
+            const resultDiv = document.getElementById('workflowResult');
+            
+            if (!userQuestion) {
+                showWorkflowStatus('请输入问题或需求', 'error');
+                return;
+            }
+            
+            showWorkflowStatus('正在智能选择工作流...', 'loading');
+            
+            // 简单的关键词匹配逻辑（可以根据需要扩展）
+            let workflowType = 'qa'; // 默认问答工作流
+            if (userQuestion.includes('股票') || userQuestion.includes('股市')) {
+                workflowType = 'stock';
+            }
+            
+            // 提取参数（示例：提取股票代码和数量）
+            let params = {};
+            if (workflowType === 'stock') {
+                const codeMatch = userQuestion.match(/股票代码[:\s]*([A-Za-z0-9]+)/i);
+                const qtyMatch = userQuestion.match(/数量[:\s]*([0-9]+)/i);
+                
+                params.stock_code = codeMatch ? codeMatch[1] : '';
+                params.quantity = qtyMatch ? qtyMatch[1] : '';
+            } else {
+                // 默认问答参数
+                params.q1 = userQuestion;
+            }
+            
+            try {
+                await executeWorkflow(workflowType, params);
+            } catch (error) {
+                showWorkflowStatus(`执行失败: ${error.message}`, 'error');
+            }
+        }
+
+        // 工作流执行函数
+        async function executeWorkflow(workflowType, params) {
+            const workflow = workflows[workflowType];
+            const resultDiv = document.getElementById('workflowResult');
+            const statusDiv = document.getElementById('workflowStatus');
             const errorDiv = document.getElementById('errorDetails');
+            
+            statusDiv.className = 'status loading';
+            statusDiv.textContent = '正在执行工作流...';
+            statusDiv.style.display = 'block';
             errorDiv.style.display = 'none';
+
+            let inputs = {};
+            
+            if (workflowType === 'qa') {
+                inputs = { "q1": params.q1 || params.question || document.getElementById('userQuestion').value };
+            } else if (workflowType === 'stock') {
+                inputs = {
+                    "stock_code": String(params.stock_code || "AAPL"),
+                    "quantity": String(params.quantity || "100"),
+                    "cost": String(params.cost || "150.0")
+                };
+            }
+            
+            console.log('发送到工作流的参数:', inputs);
             
             try {
-                await getWorkflowsInfoCore();
-            } catch (error) {
-                console.error('获取工作流信息失败:', error);
-                document.getElementById('retrySection').style.display = 'block';
-                
-                errorDiv.innerHTML = `
-                    <strong>连接失败:</strong><br>
-                    ${error.message}<br><br>
-                    <strong>可能原因:</strong><br>
-                    • 工作流服务器网络连接问题<br>
-                    • 网络防火墙限制<br>
-                    • 服务器暂时不可用<br><br>
-                    <strong>解决方法:</strong><br>
-                    • 点击"网络诊断"查看详细信息<br>
-                    • 点击"重试获取"再次尝试<br>
-                    • 如果是移动端，可以尝试"强制移动端模式"
-                `;
-                errorDiv.style.display = 'block';
-            }
-        }
-
-        // 带重试的获取工作流信息
-        async function getWorkflowsInfoWithRetry(maxRetries = 3) {
-            const statusDiv = document.getElementById('apiStatus');
-            const errorDiv = document.getElementById('errorDetails');
-            
-            for (let attempt = 1; attempt <= maxRetries; attempt++) {
-                try {
-                    statusDiv.className = 'status loading';
-                    statusDiv.textContent = `第${attempt}次尝试获取工作流信息...`;
-                    statusDiv.style.display = 'block';
-                    
-                    await getWorkflowsInfoCore();
-                    return; // 成功则退出
-                    
-                } catch (error) {
-                    console.error(`第${attempt}次尝试失败:`, error);
-                    
-                    if (attempt === maxRetries) {
-                        statusDiv.className = 'status error';
-                        statusDiv.textContent = `获取失败 (已重试${maxRetries}次)`;
-                        
-                        errorDiv.innerHTML = `
-                            <strong>重试失败详情:</strong><br>
-                            ${error.message}<br><br>
-                            <strong>建议解决方案:</strong><br>
-                            • 检查网络连接状态<br>
-                            • 确认工作流服务器是否正常运行<br>
-                            • 尝试点击"网络诊断"查看具体问题<br>
-                            • 联系技术支持
-                        `;
-                        errorDiv.style.display = 'block';
-                        break;
-                    } else {
-                        await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
-                    }
-                }
-            }
-        }
-
-        // 工作流执行函数
-        async function executeWorkflow(workflowType, params) {
-            const workflow = workflows[workflowType];
-            const resultDiv = document.getElementById('workflowResult');
-
-            try {
-                let inputs = {};
-                
-                if (workflowType === 'qa') {
-                    inputs = { "q1": params.q1 || params.question || document.getElementById('userQuestion').value };
-                } else if (workflowType === 'stock') {
-                    inputs = {
-                        "stock_code": String(params.stock_code || "AAPL"),
-                        "quantity": String(params.quantity || "100"),
-                        "cost": String(params.cost || "150.0")
-                    };
-                }
-
-                console.log('发送到工作流的参数:', inputs);
-
                 const fetchFunction = isMobileOptimized ? mobileOptimizedFetch : fetch;
 
                 const response = await fetchFunction(`${workflow.baseUrl}/v1/workflows/run`, {
@@ -899,20 +1058,15 @@
                         response_mode: 'blocking',
                         user: `intelligent-user-` + Date.now()
                     })
-                });
-
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`HTTP ${response.status}: ${errorText}`);
-                }
+                });                    
 
                 const data = await response.json();
                 showWorkflowStatus('工作流执行成功！', 'success');
-
+                
                 // 显示结果
                 let currentContent = resultDiv.innerHTML;
                 let resultHtml = '<div style="color: #ffd700; font-weight: bold; margin-top: 15px;">📋 工作流执行结果:</div>';
-
+                
                 if (data.data && data.data.outputs) {
                     for (const [key, value] of Object.entries(data.data.outputs)) {
                         resultHtml += `<div style="margin-top: 10px;">`;
@@ -931,54 +1085,46 @@
                 }
 
                 resultDiv.innerHTML = currentContent + resultHtml;
-
             } catch (error) {
                 showWorkflowStatus('工作流执行失败！', 'error');
                 let currentContent = resultDiv.innerHTML;
                 resultDiv.innerHTML = currentContent + `<div style="color: #f44336; margin-top: 10px;">执行失败: ${error.message}</div>`;
+            } finally {
+                statusDiv.className = 'status success';
+                statusDiv.textContent = '执行完成';
             }
         }
 
         // 简单的Markdown渲染器
         function renderMarkdown(text) {
             if (typeof text !== 'string') return text;
-            
             let html = text
                 // 转义HTML特殊字符
                 .replace(/&/g, '&amp;')
                 .replace(/</g, '&lt;')
                 .replace(/>/g, '&gt;')
-                
                 // 代码块（三个反引号）
                 .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
-                
                 // 行内代码
                 .replace(/`([^`]+)`/g, '<code>$1</code>')
-                
                 // 标题
                 .replace(/^### (.*$)/gm, '<h3>$1</h3>')
                 .replace(/^## (.*$)/gm, '<h2>$1</h2>')
                 .replace(/^# (.*$)/gm, '<h1>$1</h1>')
-                
                 // 粗体
                 .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
                 .replace(/__(.*?)__/g, '<strong>$1</strong>')
-                
                 // 斜体
                 .replace(/\*(.*?)\*/g, '<em>$1</em>')
                 .replace(/_(.*?)_/g, '<em>$1</em>')
-                
                 // 引用
                 .replace(/^> (.*$)/gm, '<blockquote>$1</blockquote>')
-                
                 // 无序列表
                 .replace(/^\* (.*$)/gm, '<li>$1</li>')
                 .replace(/^- (.*$)/gm, '<li>$1</li>')
-                
                 // 有序列表
                 .replace(/^\d+\. (.*$)/gm, '<li>$1</li>')
-                
-                // 换行
+                // 换行符
                 .replace(/\n/g, '<br>');
             
             // 包装列表项
@@ -989,13 +1135,10 @@
                 return match;
             });
             
-            // 清理多余的br标签
-            html = html.replace(/<br><br>/g, '<br>');
-            
             return html;
         }
 
-        // 增强的股票代码提取函数（支持中英文）
+        // 提取股票代码（增强版，支持中英文）
         function extractStockCodeEnhanced(text) {
             // 中英文关键词后的股票代码
             const patterns = [
@@ -1005,1291 +1148,12 @@
             
             for (const pattern of patterns) {
                 const match = text.match(pattern);
-                if (match) {
-                    return match[1];
-                }
-            }
-            
-            // 查找6位数字股票代码（中国股票）
-            const numberMatch = text.match(/\b\d{6}\b/);
-            if (numberMatch) {
-                return numberMatch[0];
-            }
-            
-            // 查找3-5位字母股票代码（美股等）
-            const letterMatch = text.match(/\b[A-Z]{3,5}\b/);
-            if (letterMatch) {
-                return letterMatch[0];
-            }
-            
-            return null;
-        }
-
-        // 增强的数量提取函数（支持中英文）
-        function extractQuantityEnhanced(text) {
-            // 中英文关键词后的数量
-            const patterns = [
-                /(?:持仓|数量|股数|quantity)[:\s]*(\d+(?:\.\d+)?)/i,
-                /(?:买入|持有)[:\s]*(\d+)/i
-            ];
-            
-            for (const pattern of patterns) {
-                const match = text.match(pattern);
-                if (match) {
-                    return match[1];
-                }
-            }
-            
-            // 查找文本中的数字，排除可能是股票代码的6位数
-            const numbers = text.match(/\b\d+\b/g);
-            if (numbers) {
-                // 过滤掉6位数字（可能是股票代码）和小数点数字（可能是价格）
-                const filtered = numbers.filter(num => 
-                    num.length !== 6 && 
-                    !text.includes(num + '.') // 不是小数的整数部分
-                );
-                
-                if (filtered.length > 0) {
-                    return filtered[0];
+                if (match && match[1]) {
+                    return match[1].trim();
                 }
             }
             
             return null;
-        }
-
-        // 增强的成本提取函数（支持中英文）
-        function extractCostEnhanced(text) {
-            // 中英文关键词后的成本/价格
-            const patterns = [
-                /(?:成本|成本价格|买入价|价格|cost)[:\s]*(\d+(?:\.\d+)?)/i,
-                /(?:单价|每股)[:\s]*(\d+(?:\.\d+)?)/i
-            ];
-            
-            for (const pattern of patterns) {
-                const match = text.match(pattern);
-                if (match) {
-                    return match[1];
-                }
-            }
-            
-            // 查找包含小数点的数字（通常是价格）
-            const priceMatches = text.match(/\d+\.\d+/g);
-            if (priceMatches) {
-                return priceMatches[0]; // 第一个小数通常是价格
-            }
-            
-            // 如果没有小数，查找可能的价格数字
-            const numbers = text.match(/\b\d+\b/g);
-            if (numbers && numbers.length >= 2) {
-                // 通常最后一个数字是价格
-                return numbers[numbers.length - 1];
-            }
-            
-            return null;
-        }
-
-        // 保留原有函数作为备用
-        function extractStockCodeAdvanced(text) {
-            return extractStockCodeEnhanced(text);
-        }
-
-        function extractQuantity(text) {
-            return extractQuantityEnhanced(text);
-        }
-
-        function extractCost(text) {
-            return extractCostEnhanced(text);
-        }
-
-        // 静默获取工作流信息
-        async function getWorkflowsInfoSilent() {
-            for (const [key, workflow] of Object.entries(workflows)) {
-                try {
-                    const infoResponse = await fetch(`${workflow.baseUrl}/v1/info`, {
-                        headers: { 'Authorization': `Bearer ${workflow.key}` }
-                    });
-                    
-                    const paramsResponse = await fetch(`${workflow.baseUrl}/v1/parameters`, {
-                        headers: { 'Authorization': `Bearer ${workflow.key}` }
-                    });
-
-                    if (infoResponse.ok && paramsResponse.ok) {
-                        const infoData = await infoResponse.json();
-                        const paramsData = await paramsResponse.json();
-                        workflowsInfo[key] = { info: infoData, params: paramsData };
-                    }
-                } catch (error) {
-                    console.warn(`获取${workflow.name}信息失败:`, error);
-                }
-            }
-        }
-
-        // 更新进度显示
-        function updateProgress(message, container) {
-            const progressDiv = document.createElement('div');
-            progressDiv.className = 'progress-info';
-            progressDiv.textContent = message;
-            container.appendChild(progressDiv);
-            
-            // 自动滚动到底部
-            container.scrollTop = container.scrollHeight;
-        }
-
-        // 核心获取逻辑（环境适配版）
-        async function getWorkflowsInfoCore() {
-            const responseDiv = document.getElementById('apiResponse');
-            const statusDiv = document.getElementById('apiStatus');
-            const env = detectEnvironment();
-            
-            responseDiv.textContent = '获取中...';
-            statusDiv.className = 'status loading';
-            statusDiv.textContent = `正在获取工作流信息...${env.isGitHubPages ? ' (GitHub Pages)' : ''}`;
-            statusDiv.style.display = 'block';
-
-            // 显示环境信息
-            if (env.isGitHubPages) {
-                document.getElementById('mobileInfo').style.display = 'block';
-                document.getElementById('mobileInfo').innerHTML = `
-                    🌐 GitHub Pages环境检测到<br>
-                    ${isMobileDevice() ? '📱 移动端优化已启用' : ''}
-                `;
-            }
-
-            let infoText = `=== 工作流详细信息 (${env.isGitHubPages ? 'GitHub Pages' : 'Local'}) ===\n\n`;
-            let successCount = 0;
-            
-            for (const [key, workflow] of Object.entries(workflows)) {
-                try {
-                    console.log(`获取工作流 ${key} 信息...`);
-                    
-                    // 根据环境选择请求函数和超时时间
-                    const fetchFunction = (isMobileDevice() || isMobileOptimized || env.isGitHubPages) ? 
-                        mobileOptimizedFetch : standardFetch;
-                    const timeout = env.isGitHubPages ? 25000 : (isMobileDevice() ? 20000 : 15000);
-                    
-                    // 确保使用HTTPS（如果在HTTPS环境中）
-                    let baseUrl = workflow.baseUrl;
-                    if (env.isHttps && baseUrl.startsWith('http:')) {
-                        baseUrl = baseUrl.replace('http:', 'https:');
-                    }
-                    
-                    // 获取工作流info
-                    const infoResponse = await fetchFunction(`${baseUrl}/v1/info`, {
-                        headers: { 
-                            'Authorization': `Bearer ${workflow.key}`,
-                            'Accept': 'application/json',
-                            'Content-Type': 'application/json'
-                        },
-                        mode: 'cors',
-                        credentials: 'omit'
-                    }, timeout);
-                    
-                    // 获取工作流parameters
-                    const paramsResponse = await fetchFunction(`${baseUrl}/v1/parameters`, {
-                        headers: { 
-                            'Authorization': `Bearer ${workflow.key}`,
-                            'Accept': 'application/json',
-                            'Content-Type': 'application/json'
-                        },
-                        mode: 'cors',
-                        credentials: 'omit'
-                    }, timeout);
-
-                    if (infoResponse.ok && paramsResponse.ok) {
-                        const infoData = await infoResponse.json();
-                        const paramsData = await paramsResponse.json();
-                        
-                        workflowsInfo[key] = { info: infoData, params: paramsData };
-                        successCount++;
-                        
-                        // 更新界面显示
-                        const workflowTitle = infoData.title || infoData.name || workflow.name;
-                        const workflowDesc = infoData.description || '暂无描述';
-                        
-                        if (key === 'qa') {
-                            document.getElementById('workflow1Info').innerHTML = `
-                                <strong>工作流 1:</strong> ${workflowTitle}
-                                <div class="workflow-info">${workflowDesc}</div>
-                                <div class="workflow-info">参数: q1 (问答类型)</div>
-                                <div class="workflow-info" style="color: #4CAF50;">✅ 连接正常</div>
-                            `;
-                        } else if (key === 'stock') {
-                            document.getElementById('workflow2Info').innerHTML = `
-                                <strong>工作流 2:</strong> ${workflowTitle}
-                                <div class="workflow-info">${workflowDesc}</div>
-                                <div class="workflow-info">参数: stock_code, quantity, cost (股票相关)</div>
-                                <div class="workflow-info" style="color: #4CAF50;">✅ 连接正常</div>
-                            `;
-                        }
-                        
-                        infoText += `${workflow.name}:\n`;
-                        infoText += `标题: ${workflowTitle}\n`;
-                        infoText += `描述: ${workflowDesc}\n`;
-                        infoText += `状态: ✅ 连接成功 ${env.isGitHubPages ? '(HTTPS)' : ''}\n\n`;
-                    } else {
-                        throw new Error(`HTTP错误 - Info: ${infoResponse.status}, Params: ${paramsResponse.status}`);
-                    }
-                } catch (error) {
-                    console.error(`获取${workflow.name}信息失败:`, error);
-                    let errorMsg = error.message;
-                    
-                    // 针对GitHub Pages环境的特殊错误处理
-                    if (env.isGitHubPages) {
-                        if (error.message.includes('Mixed Content')) {
-                            errorMsg = 'HTTPS环境限制：目标服务器需要支持HTTPS';
-                        } else if (error.message.includes('CORS')) {
-                            errorMsg = 'CORS跨域限制：服务器需要允许GitHub Pages访问';
-                        } else if (error.message.includes('certificate') || error.message.includes('SSL')) {
-                            errorMsg = 'SSL证书问题：服务器证书无效或过期';
-                        }
-                    }
-                    
-                    infoText += `${workflow.name}: 获取失败 - ${errorMsg}\n\n`;
-                    
-                    // 更新界面显示错误状态
-                    if (key === 'qa') {
-                        document.getElementById('workflow1Info').innerHTML = `
-                            <strong>工作流 1:</strong> 连接失败
-                            <div class="workflow-info" style="color: #f44336;">❌ ${errorMsg}</div>
-                        `;
-                    } else if (key === 'stock') {
-                        document.getElementById('workflow2Info').innerHTML = `
-                            <strong>工作流 2:</strong> 连接失败
-                            <div class="workflow-info" style="color: #f44336;">❌ ${errorMsg}</div>
-                        `;
-                    }
-                }
-            }
-
-            if (successCount === 0) {
-                const errorDetail = env.isGitHubPages ? 
-                    '在GitHub Pages环境中，需要确保目标服务器支持HTTPS并配置了有效的SSL证书' :
-                    '所有工作流连接失败';
-                throw new Error(errorDetail);
-            } else if (successCount < Object.keys(workflows).length) {
-                statusDiv.className = 'status error';
-                statusDiv.textContent = `部分工作流连接成功 (${successCount}/${Object.keys(workflows).length})`;
-            } else {
-                statusDiv.className = 'status success';
-                statusDiv.textContent = `所有工作流连接成功！${env.isGitHubPages ? ' (GitHub Pages)' : ''}`;
-                document.getElementById('retrySection').style.display = 'none';
-            }
-            
-            responseDiv.textContent = infoText;
-        }
-
-        // 带重试的获取工作流信息（移动端优化）
-        async function getWorkflowsInfoWithRetry(maxRetries = 3) {
-            const statusDiv = document.getElementById('apiStatus');
-            const errorDiv = document.getElementById('errorDetails');
-            
-            for (let attempt = 1; attempt <= maxRetries; attempt++) {
-                try {
-                    statusDiv.className = 'status loading';
-                    statusDiv.textContent = `第${attempt}次尝试获取工作流信息...`;
-                    statusDiv.style.display = 'block';
-                    
-                    await getWorkflowsInfoCore();
-                    return; // 成功则退出
-                    
-                } catch (error) {
-                    console.error(`第${attempt}次尝试失败:`, error);
-                    
-                    if (attempt === maxRetries) {
-                        statusDiv.className = 'status error';
-                        statusDiv.textContent = `获取失败 (已重试${maxRetries}次)`;
-                        
-                        errorDiv.innerHTML = `
-                            <strong>重试失败详情:</strong><br>
-                            ${error.message}<br><br>
-                            <strong>建议解决方案:</strong><br>
-                            • 检查网络连接状态<br>
-                            • 确认工作流服务器是否正常运行<br>
-                            • 尝试点击"网络诊断"查看具体问题<br>
-                            • 联系技术支持
-                        `;
-                        errorDiv.style.display = 'block';
-                        break;
-                    } else {
-                        await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
-                    }
-                }
-            }
-        }
-
-        // 工作流执行函数
-        async function executeWorkflow(workflowType, params) {
-            const workflow = workflows[workflowType];
-            const resultDiv = document.getElementById('workflowResult');
-
-            try {
-                let inputs = {};
-                
-                if (workflowType === 'qa') {
-                    inputs = { "q1": params.q1 || params.question || document.getElementById('userQuestion').value };
-                } else if (workflowType === 'stock') {
-                    inputs = {
-                        "stock_code": String(params.stock_code || "AAPL"),
-                        "quantity": String(params.quantity || "100"),
-                        "cost": String(params.cost || "150.0")
-                    };
-                }
-
-                console.log('发送到工作流的参数:', inputs);
-
-                const fetchFunction = isMobileOptimized ? mobileOptimizedFetch : fetch;
-
-                const response = await fetchFunction(`${workflow.baseUrl}/v1/workflows/run`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${workflow.key}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        inputs: inputs,
-                        response_mode: 'blocking',
-                        user: `intelligent-user-` + Date.now()
-                    })
-                });
-
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`HTTP ${response.status}: ${errorText}`);
-                }
-
-                const data = await response.json();
-                showWorkflowStatus('工作流执行成功！', 'success');
-
-                // 显示结果
-                let currentContent = resultDiv.innerHTML;
-                let resultHtml = '<div style="color: #ffd700; font-weight: bold; margin-top: 15px;">📋 工作流执行结果:</div>';
-
-                if (data.data && data.data.outputs) {
-                    for (const [key, value] of Object.entries(data.data.outputs)) {
-                        resultHtml += `<div style="margin-top: 10px;">`;
-                        resultHtml += `<strong style="color: #4CAF50;">${key}:</strong><br>`;
-                        if (typeof value === 'string') {
-                            resultHtml += renderMarkdown(value);
-                        } else {
-                            resultHtml += `<pre style="background: rgba(255,255,255,0.1); padding: 8px; border-radius: 3px; font-size: 12px;">${JSON.stringify(value, null, 2)}</pre>`;
-                        }
-                        resultHtml += `</div>`;
-                    }
-                } else if (data.answer) {
-                    resultHtml += `<div style="margin-top: 10px;"><strong style="color: #4CAF50;">回答:</strong><br>${renderMarkdown(data.answer)}</div>`;
-                } else {
-                    resultHtml += `<pre style="margin-top: 10px; background: rgba(255,255,255,0.1); padding: 8px; border-radius: 3px; font-size: 12px;">${JSON.stringify(data, null, 2)}</pre>`;
-                }
-
-                resultDiv.innerHTML = currentContent + resultHtml;
-
-            } catch (error) {
-                showWorkflowStatus('工作流执行失败！', 'error');
-                let currentContent = resultDiv.innerHTML;
-                resultDiv.innerHTML = currentContent + `<div style="color: #f44336; margin-top: 10px;">执行失败: ${error.message}</div>`;
-            }
-        }
-
-        // 简单的Markdown渲染器
-        function renderMarkdown(text) {
-            if (typeof text !== 'string') return text;
-            
-            let html = text
-                // 转义HTML特殊字符
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                
-                // 代码块（三个反引号）
-                .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
-                
-                // 行内代码
-                .replace(/`([^`]+)`/g, '<code>$1</code>')
-                
-                // 标题
-                .replace(/^### (.*$)/gm, '<h3>$1</h3>')
-                .replace(/^## (.*$)/gm, '<h2>$1</h2>')
-                .replace(/^# (.*$)/gm, '<h1>$1</h1>')
-                
-                // 粗体
-                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                .replace(/__(.*?)__/g, '<strong>$1</strong>')
-                
-                // 斜体
-                .replace(/\*(.*?)\*/g, '<em>$1</em>')
-                .replace(/_(.*?)_/g, '<em>$1</em>')
-                
-                // 引用
-                .replace(/^> (.*$)/gm, '<blockquote>$1</blockquote>')
-                
-                // 无序列表
-                .replace(/^\* (.*$)/gm, '<li>$1</li>')
-                .replace(/^- (.*$)/gm, '<li>$1</li>')
-                
-                // 有序列表
-                .replace(/^\d+\. (.*$)/gm, '<li>$1</li>')
-                
-                // 换行
-                .replace(/\n/g, '<br>');
-            
-            // 包装列表项
-            html = html.replace(/(<li>.*<\/li>)/g, function(match) {
-                if (!match.includes('<ul>') && !match.includes('<ol>')) {
-                    return '<ul>' + match + '</ul>';
-                }
-                return match;
-            });
-            
-            // 清理多余的br标签
-            html = html.replace(/<br><br>/g, '<br>');
-            
-            return html;
-        }
-
-        // 增强的股票代码提取函数（支持中英文）
-        function extractStockCodeEnhanced(text) {
-            // 中英文关键词后的股票代码
-            const patterns = [
-                /(?:股票代码|代码|stock_code)[:\s]*([A-Za-z0-9]+)/i,
-                /(?:股票|stock)[:\s]*([A-Za-z0-9]+)/i
-            ];
-            
-            for (const pattern of patterns) {
-                const match = text.match(pattern);
-                if (match) {
-                    return match[1];
-                }
-            }
-            
-            // 查找6位数字股票代码（中国股票）
-            const numberMatch = text.match(/\b\d{6}\b/);
-            if (numberMatch) {
-                return numberMatch[0];
-            }
-            
-            // 查找3-5位字母股票代码（美股等）
-            const letterMatch = text.match(/\b[A-Z]{3,5}\b/);
-            if (letterMatch) {
-                return letterMatch[0];
-            }
-            
-            return null;
-        }
-
-        // 增强的数量提取函数（支持中英文）
-        function extractQuantityEnhanced(text) {
-            // 中英文关键词后的数量
-            const patterns = [
-                /(?:持仓|数量|股数|quantity)[:\s]*(\d+(?:\.\d+)?)/i,
-                /(?:买入|持有)[:\s]*(\d+)/i
-            ];
-            
-            for (const pattern of patterns) {
-                const match = text.match(pattern);
-                if (match) {
-                    return match[1];
-                }
-            }
-            
-            // 查找文本中的数字，排除可能是股票代码的6位数
-            const numbers = text.match(/\b\d+\b/g);
-            if (numbers) {
-                // 过滤掉6位数字（可能是股票代码）和小数点数字（可能是价格）
-                const filtered = numbers.filter(num => 
-                    num.length !== 6 && 
-                    !text.includes(num + '.') // 不是小数的整数部分
-                );
-                
-                if (filtered.length > 0) {
-                    return filtered[0];
-                }
-            }
-            
-            return null;
-        }
-
-        // 增强的成本提取函数（支持中英文）
-        function extractCostEnhanced(text) {
-            // 中英文关键词后的成本/价格
-            const patterns = [
-                /(?:成本|成本价格|买入价|价格|cost)[:\s]*(\d+(?:\.\d+)?)/i,
-                /(?:单价|每股)[:\s]*(\d+(?:\.\d+)?)/i
-            ];
-            
-            for (const pattern of patterns) {
-                const match = text.match(pattern);
-                if (match) {
-                    return match[1];
-                }
-            }
-            
-            // 查找包含小数点的数字（通常是价格）
-            const priceMatches = text.match(/\d+\.\d+/g);
-            if (priceMatches) {
-                return priceMatches[0]; // 第一个小数通常是价格
-            }
-            
-            // 如果没有小数，查找可能的价格数字
-            const numbers = text.match(/\b\d+\b/g);
-            if (numbers && numbers.length >= 2) {
-                // 通常最后一个数字是价格
-                return numbers[numbers.length - 1];
-            }
-            
-            return null;
-        }
-
-        // 保留原有函数作为备用
-        function extractStockCodeAdvanced(text) {
-            return extractStockCodeEnhanced(text);
-        }
-
-        function extractQuantity(text) {
-            return extractQuantityEnhanced(text);
-        }
-
-        function extractCost(text) {
-            return extractCostEnhanced(text);
-        }
-
-        // 静默获取工作流信息
-        async function getWorkflowsInfoSilent() {
-            for (const [key, workflow] of Object.entries(workflows)) {
-                try {
-                    const infoResponse = await fetch(`${workflow.baseUrl}/v1/info`, {
-                        headers: { 'Authorization': `Bearer ${workflow.key}` }
-                    });
-                    
-                    const paramsResponse = await fetch(`${workflow.baseUrl}/v1/parameters`, {
-                        headers: { 'Authorization': `Bearer ${workflow.key}` }
-                    });
-
-                    if (infoResponse.ok && paramsResponse.ok) {
-                        const infoData = await infoResponse.json();
-                        const paramsData = await paramsResponse.json();
-                        workflowsInfo[key] = { info: infoData, params: paramsData };
-                    }
-                } catch (error) {
-                    console.warn(`获取${workflow.name}信息失败:`, error);
-                }
-            }
-        }
-
-        // 更新进度显示
-        function updateProgress(message, container) {
-            const progressDiv = document.createElement('div');
-            progressDiv.className = 'progress-info';
-            progressDiv.textContent = message;
-            container.appendChild(progressDiv);
-            
-            // 自动滚动到底部
-            container.scrollTop = container.scrollHeight;
-        }
-
-        // 核心获取逻辑（环境适配版）
-        async function getWorkflowsInfoCore() {
-            const responseDiv = document.getElementById('apiResponse');
-            const statusDiv = document.getElementById('apiStatus');
-            const env = detectEnvironment();
-            
-            responseDiv.textContent = '获取中...';
-            statusDiv.className = 'status loading';
-            statusDiv.textContent = `正在获取工作流信息...${env.isGitHubPages ? ' (GitHub Pages)' : ''}`;
-            statusDiv.style.display = 'block';
-
-            // 显示环境信息
-            if (env.isGitHubPages) {
-                document.getElementById('mobileInfo').style.display = 'block';
-                document.getElementById('mobileInfo').innerHTML = `
-                    🌐 GitHub Pages环境检测到<br>
-                    ${isMobileDevice() ? '📱 移动端优化已启用' : ''}
-                `;
-            }
-
-            let infoText = `=== 工作流详细信息 (${env.isGitHubPages ? 'GitHub Pages' : 'Local'}) ===\n\n`;
-            let successCount = 0;
-            
-            for (const [key, workflow] of Object.entries(workflows)) {
-                try {
-                    console.log(`获取工作流 ${key} 信息...`);
-                    
-                    // 根据环境选择请求函数和超时时间
-                    const fetchFunction = (isMobileDevice() || isMobileOptimized || env.isGitHubPages) ? 
-                        mobileOptimizedFetch : standardFetch;
-                    const timeout = env.isGitHubPages ? 25000 : (isMobileDevice() ? 20000 : 15000);
-                    
-                    // 确保使用HTTPS（如果在HTTPS环境中）
-                    let baseUrl = workflow.baseUrl;
-                    if (env.isHttps && baseUrl.startsWith('http:')) {
-                        baseUrl = baseUrl.replace('http:', 'https:');
-                    }
-                    
-                    // 获取工作流info
-                    const infoResponse = await fetchFunction(`${baseUrl}/v1/info`, {
-                        headers: { 
-                            'Authorization': `Bearer ${workflow.key}`,
-                            'Accept': 'application/json',
-                            'Content-Type': 'application/json'
-                        },
-                        mode: 'cors',
-                        credentials: 'omit'
-                    }, timeout);
-                    
-                    // 获取工作流parameters
-                    const paramsResponse = await fetchFunction(`${baseUrl}/v1/parameters`, {
-                        headers: { 
-                            'Authorization': `Bearer ${workflow.key}`,
-                            'Accept': 'application/json',
-                            'Content-Type': 'application/json'
-                        },
-                        mode: 'cors',
-                        credentials: 'omit'
-                    }, timeout);
-
-                    if (infoResponse.ok && paramsResponse.ok) {
-                        const infoData = await infoResponse.json();
-                        const paramsData = await paramsResponse.json();
-                        
-                        workflowsInfo[key] = { info: infoData, params: paramsData };
-                        successCount++;
-                        
-                        // 更新界面显示
-                        const workflowTitle = infoData.title || infoData.name || workflow.name;
-                        const workflowDesc = infoData.description || '暂无描述';
-                        
-                        if (key === 'qa') {
-                            document.getElementById('workflow1Info').innerHTML = `
-                                <strong>工作流 1:</strong> ${workflowTitle}
-                                <div class="workflow-info">${workflowDesc}</div>
-                                <div class="workflow-info">参数: q1 (问答类型)</div>
-                                <div class="workflow-info" style="color: #4CAF50;">✅ 连接正常</div>
-                            `;
-                        } else if (key === 'stock') {
-                            document.getElementById('workflow2Info').innerHTML = `
-                                <strong>工作流 2:</strong> ${workflowTitle}
-                                <div class="workflow-info">${workflowDesc}</div>
-                                <div class="workflow-info">参数: stock_code, quantity, cost (股票相关)</div>
-                                <div class="workflow-info" style="color: #4CAF50;">✅ 连接正常</div>
-                            `;
-                        }
-                        
-                        infoText += `${workflow.name}:\n`;
-                        infoText += `标题: ${workflowTitle}\n`;
-                        infoText += `描述: ${workflowDesc}\n`;
-                        infoText += `状态: ✅ 连接成功 ${env.isGitHubPages ? '(HTTPS)' : ''}\n\n`;
-                    } else {
-                        throw new Error(`HTTP错误 - Info: ${infoResponse.status}, Params: ${paramsResponse.status}`);
-                    }
-                } catch (error) {
-                    console.error(`获取${workflow.name}信息失败:`, error);
-                    let errorMsg = error.message;
-                    
-                    // 针对GitHub Pages环境的特殊错误处理
-                    if (env.isGitHubPages) {
-                        if (error.message.includes('Mixed Content')) {
-                            errorMsg = 'HTTPS环境限制：目标服务器需要支持HTTPS';
-                        } else if (error.message.includes('CORS')) {
-                            errorMsg = 'CORS跨域限制：服务器需要允许GitHub Pages访问';
-                        } else if (error.message.includes('certificate') || error.message.includes('SSL')) {
-                            errorMsg = 'SSL证书问题：服务器证书无效或过期';
-                        }
-                    }
-                    
-                    infoText += `${workflow.name}: 获取失败 - ${errorMsg}\n\n`;
-                    
-                    // 更新界面显示错误状态
-                    if (key === 'qa') {
-                        document.getElementById('workflow1Info').innerHTML = `
-                            <strong>工作流 1:</strong> 连接失败
-                            <div class="workflow-info" style="color: #f44336;">❌ ${errorMsg}</div>
-                        `;
-                    } else if (key === 'stock') {
-                        document.getElementById('workflow2Info').innerHTML = `
-                            <strong>工作流 2:</strong> 连接失败
-                            <div class="workflow-info" style="color: #f44336;">❌ ${errorMsg}</div>
-                        `;
-                    }
-                }
-            }
-
-            if (successCount === 0) {
-                const errorDetail = env.isGitHubPages ? 
-                    '在GitHub Pages环境中，需要确保目标服务器支持HTTPS并配置了有效的SSL证书' :
-                    '所有工作流连接失败';
-                throw new Error(errorDetail);
-            } else if (successCount < Object.keys(workflows).length) {
-                statusDiv.className = 'status error';
-                statusDiv.textContent = `部分工作流连接成功 (${successCount}/${Object.keys(workflows).length})`;
-            } else {
-                statusDiv.className = 'status success';
-                statusDiv.textContent = `所有工作流连接成功！${env.isGitHubPages ? ' (GitHub Pages)' : ''}`;
-                document.getElementById('retrySection').style.display = 'none';
-            }
-            
-            responseDiv.textContent = infoText;
-        }
-
-        // 带重试的获取工作流信息（移动端优化）
-        async function getWorkflowsInfoWithRetry(maxRetries = 3) {
-            const statusDiv = document.getElementById('apiStatus');
-            const errorDiv = document.getElementById('errorDetails');
-            
-            for (let attempt = 1; attempt <= maxRetries; attempt++) {
-                try {
-                    statusDiv.className = 'status loading';
-                    statusDiv.textContent = `第${attempt}次尝试获取工作流信息...`;
-                    statusDiv.style.display = 'block';
-                    
-                    await getWorkflowsInfoCore();
-                    return; // 成功则退出
-                    
-                } catch (error) {
-                    console.error(`第${attempt}次尝试失败:`, error);
-                    
-                    if (attempt === maxRetries) {
-                        statusDiv.className = 'status error';
-                        statusDiv.textContent = `获取失败 (已重试${maxRetries}次)`;
-                        
-                        errorDiv.innerHTML = `
-                            <strong>重试失败详情:</strong><br>
-                            ${error.message}<br><br>
-                            <strong>建议解决方案:</strong><br>
-                            • 检查网络连接状态<br>
-                            • 确认工作流服务器是否正常运行<br>
-                            • 尝试点击"网络诊断"查看具体问题<br>
-                            • 联系技术支持
-                        `;
-                        errorDiv.style.display = 'block';
-                        break;
-                    } else {
-                        await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
-                    }
-                }
-            }
-        }
-
-        // 工作流执行函数
-        async function executeWorkflow(workflowType, params) {
-            const workflow = workflows[workflowType];
-            const resultDiv = document.getElementById('workflowResult');
-
-            try {
-                let inputs = {};
-                
-                if (workflowType === 'qa') {
-                    inputs = { "q1": params.q1 || params.question || document.getElementById('userQuestion').value };
-                } else if (workflowType === 'stock') {
-                    inputs = {
-                        "stock_code": String(params.stock_code || "AAPL"),
-                        "quantity": String(params.quantity || "100"),
-                        "cost": String(params.cost || "150.0")
-                    };
-                }
-
-                console.log('发送到工作流的参数:', inputs);
-
-                const fetchFunction = isMobileOptimized ? mobileOptimizedFetch : fetch;
-
-                const response = await fetchFunction(`${workflow.baseUrl}/v1/workflows/run`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${workflow.key}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        inputs: inputs,
-                        response_mode: 'blocking',
-                        user: `intelligent-user-` + Date.now()
-                    })
-                });
-
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`HTTP ${response.status}: ${errorText}`);
-                }
-
-                const data = await response.json();
-                showWorkflowStatus('工作流执行成功！', 'success');
-
-                // 显示结果
-                let currentContent = resultDiv.innerHTML;
-                let resultHtml = '<div style="color: #ffd700; font-weight: bold; margin-top: 15px;">📋 工作流执行结果:</div>';
-
-                if (data.data && data.data.outputs) {
-                    for (const [key, value] of Object.entries(data.data.outputs)) {
-                        resultHtml += `<div style="margin-top: 10px;">`;
-                        resultHtml += `<strong style="color: #4CAF50;">${key}:</strong><br>`;
-                        if (typeof value === 'string') {
-                            resultHtml += renderMarkdown(value);
-                        } else {
-                            resultHtml += `<pre style="background: rgba(255,255,255,0.1); padding: 8px; border-radius: 3px; font-size: 12px;">${JSON.stringify(value, null, 2)}</pre>`;
-                        }
-                        resultHtml += `</div>`;
-                    }
-                } else if (data.answer) {
-                    resultHtml += `<div style="margin-top: 10px;"><strong style="color: #4CAF50;">回答:</strong><br>${renderMarkdown(data.answer)}</div>`;
-                } else {
-                    resultHtml += `<pre style="margin-top: 10px; background: rgba(255,255,255,0.1); padding: 8px; border-radius: 3px; font-size: 12px;">${JSON.stringify(data, null, 2)}</pre>`;
-                }
-
-                resultDiv.innerHTML = currentContent + resultHtml;
-
-            } catch (error) {
-                showWorkflowStatus('工作流执行失败！', 'error');
-                let currentContent = resultDiv.innerHTML;
-                resultDiv.innerHTML = currentContent + `<div style="color: #f44336; margin-top: 10px;">执行失败: ${error.message}</div>`;
-            }
-        }
-
-        // 简单的Markdown渲染器
-        function renderMarkdown(text) {
-            if (typeof text !== 'string') return text;
-            
-            let html = text
-                // 转义HTML特殊字符
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                
-                // 代码块（三个反引号）
-                .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
-                
-                // 行内代码
-                .replace(/`([^`]+)`/g, '<code>$1</code>')
-                
-                // 标题
-                .replace(/^### (.*$)/gm, '<h3>$1</h3>')
-                .replace(/^## (.*$)/gm, '<h2>$1</h2>')
-                .replace(/^# (.*$)/gm, '<h1>$1</h1>')
-                
-                // 粗体
-                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                .replace(/__(.*?)__/g, '<strong>$1</strong>')
-                
-                // 斜体
-                .replace(/\*(.*?)\*/g, '<em>$1</em>')
-                .replace(/_(.*?)_/g, '<em>$1</em>')
-                
-                // 引用
-                .replace(/^> (.*$)/gm, '<blockquote>$1</blockquote>')
-                
-                // 无序列表
-                .replace(/^\* (.*$)/gm, '<li>$1</li>')
-                .replace(/^- (.*$)/gm, '<li>$1</li>')
-                
-                // 有序列表
-                .replace(/^\d+\. (.*$)/gm, '<li>$1</li>')
-                
-                // 换行
-                .replace(/\n/g, '<br>');
-            
-            // 包装列表项
-            html = html.replace(/(<li>.*<\/li>)/g, function(match) {
-                if (!match.includes('<ul>') && !match.includes('<ol>')) {
-                    return '<ul>' + match + '</ul>';
-                }
-                return match;
-            });
-            
-            // 清理多余的br标签
-            html = html.replace(/<br><br>/g, '<br>');
-            
-            return html;
-        }
-
-        // 增强的股票代码提取函数（支持中英文）
-        function extractStockCodeEnhanced(text) {
-            // 中英文关键词后的股票代码
-            const patterns = [
-                /(?:股票代码|代码|stock_code)[:\s]*([A-Za-z0-9]+)/i,
-                /(?:股票|stock)[:\s]*([A-Za-z0-9]+)/i
-            ];
-            
-            for (const pattern of patterns) {
-                const match = text.match(pattern);
-                if (match) {
-                    return match[1];
-                }
-            }
-            
-            // 查找6位数字股票代码（中国股票）
-            const numberMatch = text.match(/\b\d{6}\b/);
-            if (numberMatch) {
-                return numberMatch[0];
-            }
-            
-            // 查找3-5位字母股票代码（美股等）
-            const letterMatch = text.match(/\b[A-Z]{3,5}\b/);
-            if (letterMatch) {
-                return letterMatch[0];
-            }
-            
-            return null;
-        }
-
-        // 增强的数量提取函数（支持中英文）
-        function extractQuantityEnhanced(text) {
-            // 中英文关键词后的数量
-            const patterns = [
-                /(?:持仓|数量|股数|quantity)[:\s]*(\d+(?:\.\d+)?)/i,
-                /(?:买入|持有)[:\s]*(\d+)/i
-            ];
-            
-            for (const pattern of patterns) {
-                const match = text.match(pattern);
-                if (match) {
-                    return match[1];
-                }
-            }
-            
-            // 查找文本中的数字，排除可能是股票代码的6位数
-            const numbers = text.match(/\b\d+\b/g);
-            if (numbers) {
-                // 过滤掉6位数字（可能是股票代码）和小数点数字（可能是价格）
-                const filtered = numbers.filter(num => 
-                    num.length !== 6 && 
-                    !text.includes(num + '.') // 不是小数的整数部分
-                );
-                
-                if (filtered.length > 0) {
-                    return filtered[0];
-                }
-            }
-            
-            return null;
-        }
-
-        // 增强的成本提取函数（支持中英文）
-        function extractCostEnhanced(text) {
-            // 中英文关键词后的成本/价格
-            const patterns = [
-                /(?:成本|成本价格|买入价|价格|cost)[:\s]*(\d+(?:\.\d+)?)/i,
-                /(?:单价|每股)[:\s]*(\d+(?:\.\d+)?)/i
-            ];
-            
-            for (const pattern of patterns) {
-                const match = text.match(pattern);
-                if (match) {
-                    return match[1];
-                }
-            }
-            
-            // 查找包含小数点的数字（通常是价格）
-            const priceMatches = text.match(/\d+\.\d+/g);
-            if (priceMatches) {
-                return priceMatches[0]; // 第一个小数通常是价格
-            }
-            
-            // 如果没有小数，查找可能的价格数字
-            const numbers = text.match(/\b\d+\b/g);
-            if (numbers && numbers.length >= 2) {
-                // 通常最后一个数字是价格
-                return numbers[numbers.length - 1];
-            }
-            
-            return null;
-        }
-
-        // 保留原有函数作为备用
-        function extractStockCodeAdvanced(text) {
-            return extractStockCodeEnhanced(text);
-        }
-
-        function extractQuantity(text) {
-            return extractQuantityEnhanced(text);
-        }
-
-        function extractCost(text) {
-            return extractCostEnhanced(text);
-        }
-
-        // 静默获取工作流信息
-        async function getWorkflowsInfoSilent() {
-            for (const [key, workflow] of Object.entries(workflows)) {
-                try {
-                    const infoResponse = await fetch(`${workflow.baseUrl}/v1/info`, {
-                        headers: { 'Authorization': `Bearer ${workflow.key}` }
-                    });
-                    
-                    const paramsResponse = await fetch(`${workflow.baseUrl}/v1/parameters`, {
-                        headers: { 'Authorization': `Bearer ${workflow.key}` }
-                    });
-
-                    if (infoResponse.ok && paramsResponse.ok) {
-                        const infoData = await infoResponse.json();
-                        const paramsData = await paramsResponse.json();
-                        workflowsInfo[key] = { info: infoData, params: paramsData };
-                    }
-                } catch (error) {
-                    console.warn(`获取${workflow.name}信息失败:`, error);
-                }
-            }
-        }
-
-        // 更新进度显示
-        function updateProgress(message, container) {
-            const progressDiv = document.createElement('div');
-            progressDiv.className = 'progress-info';
-            progressDiv.textContent = message;
-            container.appendChild(progressDiv);
-            
-            // 自动滚动到底部
-            container.scrollTop = container.scrollHeight;
-        }
-
-        // 核心获取逻辑（环境适配版）
-        async function getWorkflowsInfoCore() {
-            const responseDiv = document.getElementById('apiResponse');
-            const statusDiv = document.getElementById('apiStatus');
-            const env = detectEnvironment();
-            
-            responseDiv.textContent = '获取中...';
-            statusDiv.className = 'status loading';
-            statusDiv.textContent = `正在获取工作流信息...${env.isGitHubPages ? ' (GitHub Pages)' : ''}`;
-            statusDiv.style.display = 'block';
-
-            // 显示环境信息
-            if (env.isGitHubPages) {
-                document.getElementById('mobileInfo').style.display = 'block';
-                document.getElementById('mobileInfo').innerHTML = `
-                    🌐 GitHub Pages环境检测到<br>
-                    ${isMobileDevice() ? '📱 移动端优化已启用' : ''}
-                `;
-            }
-
-            let infoText = `=== 工作流详细信息 (${env.isGitHubPages ? 'GitHub Pages' : 'Local'}) ===\n\n`;
-            let successCount = 0;
-            
-            for (const [key, workflow] of Object.entries(workflows)) {
-                try {
-                    console.log(`获取工作流 ${key} 信息...`);
-                    
-                    // 根据环境选择请求函数和超时时间
-                    const fetchFunction = (isMobileDevice() || isMobileOptimized || env.isGitHubPages) ? 
-                        mobileOptimizedFetch : standardFetch;
-                    const timeout = env.isGitHubPages ? 25000 : (isMobileDevice() ? 20000 : 15000);
-                    
-                    // 确保使用HTTPS（如果在HTTPS环境中）
-                    let baseUrl = workflow.baseUrl;
-                    if (env.isHttps && baseUrl.startsWith('http:')) {
-                        baseUrl = baseUrl.replace('http:', 'https:');
-                    }
-                    
-                    // 获取工作流info
-                    const infoResponse = await fetchFunction(`${baseUrl}/v1/info`, {
-                        headers: { 
-                            'Authorization': `Bearer ${workflow.key}`,
-                            'Accept': 'application/json',
-                            'Content-Type': 'application/json'
-                        },
-                        mode: 'cors',
-                        credentials: 'omit'
-                    }, timeout);
-                    
-                    // 获取工作流parameters
-                    const paramsResponse = await fetchFunction(`${baseUrl}/v1/parameters`, {
-                        headers: { 
-                            'Authorization': `Bearer ${workflow.key}`,
-                            'Accept': 'application/json',
-                            'Content-Type': 'application/json'
-                        },
-                        mode: 'cors',
-                        credentials: 'omit'
-                    }, timeout);
-
-                    if (infoResponse.ok && paramsResponse.ok) {
-                        const infoData = await infoResponse.json();
-                        const paramsData = await paramsResponse.json();
-                        
-                        workflowsInfo[key] = { info: infoData, params: paramsData };
-                        successCount++;
-                        
-                        // 更新界面显示
-                        const workflowTitle = infoData.title || infoData.name || workflow.name;
-                        const workflowDesc = infoData.description || '暂无描述';
-                        
-                        if (key === 'qa') {
-                            document.getElementById('workflow1Info').innerHTML = `
-                                <strong>工作流 1:</strong> ${workflowTitle}
-                                <div class="workflow-info">${workflowDesc}</div>
-                                <div class="workflow-info">参数: q1 (问答类型)</div>
-                                <div class="workflow-info" style="color: #4CAF50;">✅ 连接正常</div>
-                            `;
-                        } else if (key === 'stock') {
-                            document.getElementById('workflow2Info').innerHTML = `
-                                <strong>工作流 2:</strong> ${workflowTitle}
-                                <div class="workflow-info">${workflowDesc}</div>
-                                <div class="workflow-info">参数: stock_code, quantity, cost (股票相关)</div>
-                                <div class="workflow-info" style="color: #4CAF50;">✅ 连接正常</div>
-                            `;
-                        }
-                        
-                        infoText += `${workflow.name}:\n`;
-                        infoText += `标题: ${workflowTitle}\n`;
-                        infoText += `描述: ${workflowDesc}\n`;
-                        infoText += `状态: ✅ 连接成功 ${env.isGitHubPages ? '(HTTPS)' : ''}\n\n`;
-                    } else {
-                        throw new Error(`HTTP错误 - Info: ${infoResponse.status}, Params: ${paramsResponse.status}`);
-                    }
-                } catch (error) {
-                    console.error(`获取${workflow.name}信息失败:`, error);
-                    let errorMsg = error.message;
-                    
-                    // 针对GitHub Pages环境的特殊错误处理
-                    if (env.isGitHubPages) {
-                        if (error.message.includes('Mixed Content')) {
-                            errorMsg = 'HTTPS环境限制：目标服务器需要支持HTTPS';
-                        } else if (error.message.includes('CORS')) {
-                            errorMsg = 'CORS跨域限制：服务器需要允许GitHub Pages访问';
-                        } else if (error.message.includes('certificate') || error.message.includes('SSL')) {
-                            errorMsg = 'SSL证书问题：服务器证书无效或过期';
-                        }
-                    }
-                    
-                    infoText += `${workflow.name}: 获取失败 - ${errorMsg}\n\n`;
-                    
-                    // 更新界面显示错误状态
-                    if (key === 'qa') {
-                        document.getElementById('workflow1Info').innerHTML = `
-                            <strong>工作流 1:</strong> 连接失败
-                            <div class="workflow-info" style="color: #f44336;">❌ ${errorMsg}</div>
-                        `;
-                    } else if (key === 'stock') {
-                        document.getElementById('workflow2Info').innerHTML = `
-                            <strong>工作流 2:</strong> 连接失败
-                            <div class="workflow-info" style="color: #f44336;">❌ ${errorMsg}</div>
-                        `;
-                    }
-                }
-            }
-
-            if (successCount === 0) {
-                const errorDetail = env.isGitHubPages ? 
-                    '在GitHub Pages环境中，需要确保目标服务器支持HTTPS并配置了有效的SSL证书' :
-                    '所有工作流连接失败';
-                throw new Error(errorDetail);
-            } else if (successCount < Object.keys(workflows).length) {
-                statusDiv.className = 'status error';
-                statusDiv.textContent = `部分工作流连接成功 (${successCount}/${Object.keys(workflows).length})`;
-            } else {
-                statusDiv.className = 'status success';
-                statusDiv.textContent = `所有工作流连接成功！${env.isGitHubPages ? ' (GitHub Pages)' : ''}`;
-                document.getElementById('retrySection').style.display = 'none';
-            }
-            
-            responseDiv.textContent = infoText;
-        }
-
-        // 带重试的获取工作流信息（移动端优化）
-        async function getWorkflowsInfoWithRetry(maxRetries = 3) {
-            const statusDiv = document.getElementById('apiStatus');
-            const errorDiv = document.getElementById('errorDetails');
-            
-            for (let attempt = 1; attempt <= maxRetries; attempt++) {
-                try {
-                    statusDiv.className = 'status loading';
-                    statusDiv.textContent = `第${attempt}次尝试获取工作流信息...`;
-                    statusDiv.style.display = 'block';
-                    
-                    await getWorkflowsInfoCore();
-                    return; // 成功则退出
-                    
-                } catch (error) {
-                    console.error(`第${attempt}次尝试失败:`, error);
-                    
-                    if (attempt === maxRetries) {
-                        statusDiv.className = 'status error';
-                        statusDiv.textContent = `获取失败 (已重试${maxRetries}次)`;
-                        
-                        errorDiv.innerHTML = `
-                            <strong>重试失败详情:</strong><br>
-                            ${error.message}<br><br>
-                            <strong>建议解决方案:</strong><br>
-                            • 检查网络连接状态<br>
-                            • 确认工作流服务器是否正常运行<br>
-                            • 尝试点击"网络诊断"查看具体问题<br>
-                            • 联系技术支持
-                        `;
-                        errorDiv.style.display = 'block';
-                        break;
-                    } else {
-                        await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
-                    }
-                }
-            }
-        }
-
-        // 工作流执行函数
-        async function executeWorkflow(workflowType, params) {
-            const workflow = workflows[workflowType];
-            const resultDiv = document.getElementById('workflowResult');
-
-            try {
-                let inputs = {};
-                
-                if (workflowType === 'qa') {
-                    inputs = { "q1": params.q1 || params.question || document.getElementById('userQuestion').value };
-                } else if (workflowType === 'stock') {
-                    inputs = {
-                        "stock_code": String(params.stock_code || "AAPL"),
-                        "quantity": String(params.quantity || "100"),
-                        "cost": String(params.cost || "150.0")
-                    };
-                }
-
-                console.log('发送到工作流的参数:', inputs);
-
-                const fetchFunction = isMobileOptimized ? mobileOptimizedFetch : fetch;
-
-                const response = await fetchFunction(`${workflow.baseUrl}/v1/workflows/run`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${workflow.key}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        inputs: inputs,
-                        response_mode: 'blocking',
-                        user: `intelligent-user-` + Date.now()
-                    })
-                });
-
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`HTTP ${response.status}: ${errorText}`);
-                }
-
-                const data = await response.json();
-                showWorkflowStatus('工作流执行成功！', 'success');
-
-                // 显示结果
-                let currentContent = resultDiv.innerHTML;
-                let resultHtml = '<div style="color: #ffd700; font-weight: bold; margin-top: 15px;">📋 工作流执行结果:</div>';
-
-                if (data.data && data.data.outputs) {
-                    for (const [key, value] of Object.entries(data.data.outputs)) {
-                        resultHtml += `<div style="margin-top: 10px;">`;
-                        resultHtml += `<strong style="color: #4CAF50;">${key}:</strong><br>`;
-                        if (typeof value === 'string') {
-                            resultHtml += renderMarkdown(value);
-                        } else {
-                            resultHtml += `<pre style="background: rgba(255,255,255,0.1); padding: 8px; border-radius: 3px; font-size: 12px;">${JSON.stringify(value, null, 2)}</pre>`;
-                        }
-                        resultHtml += `</div>`;
-                    }
-                } else if (data.answer) {
-                    resultHtml += `<div style="margin-top: 10px;"><strong style="color: #4CAF50;">回答:</strong><br>${renderMarkdown(data.answer)}</div>`;
-                } else {
-                    resultHtml += `<pre style="margin-top: 10px; background: rgba(255,255,255,0.1); padding: 8px; border-radius: 3px; font-size: 12px;">${JSON.stringify(data, null, 2)}</pre>`;
-                }
-
-                resultDiv.innerHTML = currentContent + resultHtml;
-
-            } catch (error) {
-                showWorkflowStatus('工作流执行失败！', 'error');
-                let currentContent = resultDiv.innerHTML;
-                resultDiv.innerHTML = currentContent + `<div style="color: #f44336; margin-top: 10px;">执行失败: ${error.message}</div>`;
-            }
         }
 
         // 页面加载时的初始化
@@ -2302,7 +1166,7 @@
                 document.getElementById('mobileInfo').textContent = '🌐 GitHub Pages环境';
             }
             
-            // 直接获取工作流信息，不做复杂的延迟处理
+            // 直接获取工作流信息
             getWorkflowsInfo();
         });
     </script>
