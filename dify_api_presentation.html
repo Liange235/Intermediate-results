@@ -326,6 +326,68 @@
             border-left: 3px solid #ffd700;
         }
 
+        .mobile-info {
+            background: rgba(255, 193, 7, 0.2);
+            border: 1px solid rgba(255, 193, 7, 0.4);
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+            color: #ffc107;
+            font-size: 13px;
+            display: none;
+        }
+
+        .retry-section {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .retry-button {
+            background: linear-gradient(45deg, #ff9800, #f57c00);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin: 5px;
+            transition: all 0.3s ease;
+        }
+
+        .retry-button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        .manual-config {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            display: none;
+        }
+
+        .manual-config.show {
+            display: block;
+        }
+
+        .error-details {
+            background: rgba(244, 67, 54, 0.1);
+            border: 1px solid rgba(244, 67, 54, 0.3);
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-size: 12px;
+            color: #ffcdd2;
+            font-family: 'Courier New', monospace;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
         @media (max-width: 768px) {
             .content-area {
                 grid-template-columns: 1fr;
@@ -340,6 +402,10 @@
 <body>
     <div class="presentation-container">
         <h1>智能工作流</h1>
+        
+        <div class="mobile-info">
+            📱 移动端提示：如果遇到网络问题，请尝试切换到WiFi网络或使用手动配置模式
+        </div>
         
         <div class="content-area">
             <div class="left-panel">
@@ -363,7 +429,24 @@
                         <div class="workflow-info">参数: stock_code, quantity, cost (股票相关)</div>
                     </div>
                     <button class="api-button" onclick="getWorkflowsInfo()">获取工作流详情</button>
+                    
+                    <div class="retry-section" id="retrySection" style="display: none;">
+                        <h4 style="color: #ffd700; margin-bottom: 10px;">🔄 网络问题？</h4>
+                        <button class="retry-button" onclick="getWorkflowsInfoWithRetry()">重试获取</button>
+                        <button class="retry-button" onclick="toggleManualConfig()">手动配置</button>
+                        <button class="retry-button" onclick="testNetworkConnectivity()">网络测试</button>
+                    </div>
+                    
+                    <div class="manual-config" id="manualConfig">
+                        <h4 style="color: #ffd700; margin-bottom: 10px;">⚙️ 手动配置工作流</h4>
+                        <input type="text" id="manualBaseUrl" class="config-input" placeholder="工作流基础URL (如: https://frp-act.com:38699)" value="https://frp-act.com:38699">
+                        <input type="text" id="manualQaKey" class="config-input" placeholder="Q&A工作流Key" value="app-kMUrnXPk87MqRXqiexeakO7T">
+                        <input type="text" id="manualStockKey" class="config-input" placeholder="股票工作流Key" value="app-vdFNo8tzLB5e66dhSDvckayH">
+                        <button class="api-button" onclick="applyManualConfig()">应用配置</button>
+                    </div>
+                    
                     <div id="apiStatus" class="status" style="display: none;"></div>
+                    <div id="errorDetails" class="error-details" style="display: none;"></div>
                     <div id="apiResponse" class="api-response">点击按钮获取工作流信息...</div>
                 </div>
 
@@ -447,86 +530,32 @@
 
         // 获取工作流信息
         async function getWorkflowsInfo() {
-            const statusDiv = document.getElementById('apiStatus');
-            const responseDiv = document.getElementById('apiResponse');
+            const errorDiv = document.getElementById('errorDetails');
+            errorDiv.style.display = 'none';
             
-            statusDiv.className = 'status loading';
-            statusDiv.textContent = '正在获取工作流信息...';
-            statusDiv.style.display = 'block';
-            responseDiv.textContent = '获取中...';
-
             try {
-                let infoText = "=== 工作流详细信息 ===\n\n";
-                
-                for (const [key, workflow] of Object.entries(workflows)) {
-                    try {
-                        // 获取工作流info
-                        const infoResponse = await fetch(`${workflow.baseUrl}/v1/info`, {
-                            headers: { 'Authorization': `Bearer ${workflow.key}` }
-                        });
-                        
-                        // 获取工作流parameters
-                        const paramsResponse = await fetch(`${workflow.baseUrl}/v1/parameters`, {
-                            headers: { 'Authorization': `Bearer ${workflow.key}` }
-                        });
-
-                        if (infoResponse.ok && paramsResponse.ok) {
-                            const infoData = await infoResponse.json();
-                            const paramsData = await paramsResponse.json();
-                            
-                            workflowsInfo[key] = { info: infoData, params: paramsData };
-                            
-                            // 更新界面显示，不显示敏感信息
-                            const workflowTitle = infoData.title || infoData.name || workflow.name;
-                            const workflowDesc = infoData.description || '暂无描述';
-                            
-                            if (key === 'qa') {
-                                document.getElementById('workflow1Info').innerHTML = `
-                                    <strong>工作流 1:</strong> ${workflowTitle}
-                                    <div class="workflow-info">${workflowDesc}</div>
-                                    <div class="workflow-info">参数: q1 (问答类型)</div>
-                                `;
-                            } else if (key === 'stock') {
-                                document.getElementById('workflow2Info').innerHTML = `
-                                    <strong>工作流 2:</strong> ${workflowTitle}
-                                    <div class="workflow-info">${workflowDesc}</div>
-                                    <div class="workflow-info">参数: stock_code, quantity, cost (股票相关)</div>
-                                `;
-                            }
-                            
-                            infoText += `${workflow.name}:\n`;
-                            infoText += `标题: ${workflowTitle}\n`;
-                            infoText += `描述: ${workflowDesc}\n`;
-                            infoText += `参数结构: ${JSON.stringify(paramsData.user_input_form || workflow.params, null, 2)}\n\n`;
-                        } else {
-                            throw new Error(`获取失败 - Info: ${infoResponse.status}, Params: ${paramsResponse.status}`);
-                        }
-                    } catch (error) {
-                        infoText += `${workflow.name}: 获取失败 - ${error.message}\n\n`;
-                        
-                        // 更新界面显示错误状态
-                        if (key === 'qa') {
-                            document.getElementById('workflow1Info').innerHTML = `
-                                <strong>工作流 1:</strong> 获取失败
-                                <div class="workflow-info" style="color: #f44336;">错误: ${error.message}</div>
-                            `;
-                        } else if (key === 'stock') {
-                            document.getElementById('workflow2Info').innerHTML = `
-                                <strong>工作流 2:</strong> 获取失败
-                                <div class="workflow-info" style="color: #f44336;">错误: ${error.message}</div>
-                            `;
-                        }
-                    }
-                }
-
-                statusDiv.className = 'status success';
-                statusDiv.textContent = '工作流信息获取完成！';
-                responseDiv.textContent = infoText;
-
+                await getWorkflowsInfoCore();
             } catch (error) {
-                statusDiv.className = 'status error';
-                statusDiv.textContent = '获取工作流信息失败！';
-                responseDiv.textContent = `错误: ${error.message}`;
+                console.error('获取工作流信息失败:', error);
+                document.getElementById('retrySection').style.display = 'block';
+                
+                // 如果是移动设备，给出特别提示
+                if (isMobileDevice()) {
+                    const errorDiv = document.getElementById('errorDetails');
+                    errorDiv.innerHTML = `
+                        <strong>📱 移动端网络问题:</strong><br>
+                        ${error.message}<br><br>
+                        <strong>移动端常见问题:</strong><br>
+                        • 移动网络运营商可能限制HTTPS请求<br>
+                        • 某些移动浏览器有严格的CORS策略<br>
+                        • 企业网络或公共WiFi可能有防火墙限制<br><br>
+                        <strong>建议:</strong><br>
+                        • 切换到其他网络环境<br>
+                        • 使用手动配置模式<br>
+                        • 在PC端浏览器中打开
+                    `;
+                    errorDiv.style.display = 'block';
+                }
             }
         }
 
@@ -1056,9 +1085,313 @@ ${workflowDescriptions}
             container.scrollTop = container.scrollHeight;
         }
 
-        // 页面加载时获取工作流信息
+        // 检测是否为移动设备
+        function isMobileDevice() {
+            return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        }
+
+        // 增强的网络请求函数
+        async function fetchWithTimeout(url, options = {}, timeout = 10000) {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), timeout);
+            
+            try {
+                const response = await fetch(url, {
+                    ...options,
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+                return response;
+            } catch (error) {
+                clearTimeout(timeoutId);
+                if (error.name === 'AbortError') {
+                    throw new Error('请求超时');
+                }
+                throw error;
+            }
+        }
+
+        // 网络连通性测试
+        async function testNetworkConnectivity() {
+            const statusDiv = document.getElementById('apiStatus');
+            const errorDiv = document.getElementById('errorDetails');
+            
+            statusDiv.className = 'status loading';
+            statusDiv.textContent = '正在测试网络连通性...';
+            statusDiv.style.display = 'block';
+            errorDiv.style.display = 'none';
+
+            const testUrls = [
+                'https://httpbin.org/get',
+                'https://api.github.com',
+                'https://frp-act.com:38699'
+            ];
+
+            let results = [];
+            
+            for (const url of testUrls) {
+                try {
+                    console.log(`测试连接: ${url}`);
+                    const startTime = Date.now();
+                    const response = await fetchWithTimeout(url, {
+                        method: 'GET',
+                        mode: 'cors'
+                    }, 5000);
+                    const endTime = Date.now();
+                    
+                    results.push({
+                        url: url,
+                        status: response.ok ? '✅ 成功' : `❌ HTTP ${response.status}`,
+                        time: `${endTime - startTime}ms`
+                    });
+                } catch (error) {
+                    results.push({
+                        url: url,
+                        status: `❌ ${error.message}`,
+                        time: 'N/A'
+                    });
+                }
+            }
+
+            // 显示测试结果
+            let resultText = '网络连通性测试结果:\n\n';
+            results.forEach(result => {
+                resultText += `${result.url}\n状态: ${result.status}\n响应时间: ${result.time}\n\n`;
+            });
+
+            statusDiv.className = 'status success';
+            statusDiv.textContent = '网络测试完成';
+            document.getElementById('apiResponse').textContent = resultText;
+            
+            // 显示详细错误信息
+            errorDiv.innerHTML = `
+                <strong>设备信息:</strong><br>
+                用户代理: ${navigator.userAgent}<br>
+                是否移动设备: ${isMobileDevice() ? '是' : '否'}<br>
+                网络连接: ${navigator.onLine ? '在线' : '离线'}<br><br>
+                <strong>建议:</strong><br>
+                ${isMobileDevice() ? 
+                    '• 尝试切换到WiFi网络<br>• 检查移动网络是否允许访问外部API<br>• 使用手动配置模式' : 
+                    '• 检查防火墙设置<br>• 确认网络连接正常'
+                }
+            `;
+            errorDiv.style.display = 'block';
+        }
+
+        // 带重试的获取工作流信息
+        async function getWorkflowsInfoWithRetry(maxRetries = 3) {
+            const statusDiv = document.getElementById('apiStatus');
+            const errorDiv = document.getElementById('errorDetails');
+            
+            for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                try {
+                    statusDiv.className = 'status loading';
+                    statusDiv.textContent = `正在尝试获取工作流信息... (${attempt}/${maxRetries})`;
+                    statusDiv.style.display = 'block';
+                    
+                    await getWorkflowsInfoCore();
+                    return; // 成功则退出
+                    
+                } catch (error) {
+                    console.error(`第${attempt}次尝试失败:`, error);
+                    
+                    if (attempt === maxRetries) {
+                        // 最后一次尝试失败
+                        statusDiv.className = 'status error';
+                        statusDiv.textContent = `获取失败 (已重试${maxRetries}次)`;
+                        
+                        errorDiv.innerHTML = `
+                            <strong>错误详情:</strong><br>
+                            ${error.message}<br><br>
+                            <strong>可能原因:</strong><br>
+                            • 网络连接问题 (移动网络限制)<br>
+                            • CORS跨域限制<br>
+                            • 服务器不可达<br>
+                            • API密钥无效<br><br>
+                            <strong>解决方案:</strong><br>
+                            • 切换网络环境 (WiFi/4G)<br>
+                            • 使用手动配置模式<br>
+                            • 联系管理员检查服务状态
+                        `;
+                        errorDiv.style.display = 'block';
+                        
+                        // 显示重试选项
+                        document.getElementById('retrySection').style.display = 'block';
+                        break;
+                    } else {
+                        // 等待后重试
+                        await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
+                    }
+                }
+            }
+        }
+
+        // 核心获取逻辑
+        async function getWorkflowsInfoCore() {
+            const responseDiv = document.getElementById('apiResponse');
+            responseDiv.textContent = '获取中...';
+
+            let infoText = "=== 工作流详细信息 ===\n\n";
+            let hasError = false;
+            
+            for (const [key, workflow] of Object.entries(workflows)) {
+                try {
+                    console.log(`获取工作流 ${key} 信息...`);
+                    
+                    // 获取工作流info
+                    const infoResponse = await fetchWithTimeout(`${workflow.baseUrl}/v1/info`, {
+                        headers: { 
+                            'Authorization': `Bearer ${workflow.key}`,
+                            'Accept': 'application/json',
+                            'Content-Type': 'application/json'
+                        },
+                        mode: 'cors',
+                        credentials: 'omit'
+                    }, 8000);
+                    
+                    // 获取工作流parameters
+                    const paramsResponse = await fetchWithTimeout(`${workflow.baseUrl}/v1/parameters`, {
+                        headers: { 
+                            'Authorization': `Bearer ${workflow.key}`,
+                            'Accept': 'application/json',
+                            'Content-Type': 'application/json'
+                        },
+                        mode: 'cors',
+                        credentials: 'omit'
+                    }, 8000);
+
+                    if (infoResponse.ok && paramsResponse.ok) {
+                        const infoData = await infoResponse.json();
+                        const paramsData = await paramsResponse.json();
+                        
+                        workflowsInfo[key] = { info: infoData, params: paramsData };
+                        
+                        // 更新界面显示
+                        const workflowTitle = infoData.title || infoData.name || workflow.name;
+                        const workflowDesc = infoData.description || '暂无描述';
+                        
+                        if (key === 'qa') {
+                            document.getElementById('workflow1Info').innerHTML = `
+                                <strong>工作流 1:</strong> ${workflowTitle}
+                                <div class="workflow-info">${workflowDesc}</div>
+                                <div class="workflow-info">参数: q1 (问答类型)</div>
+                            `;
+                        } else if (key === 'stock') {
+                            document.getElementById('workflow2Info').innerHTML = `
+                                <strong>工作流 2:</strong> ${workflowTitle}
+                                <div class="workflow-info">${workflowDesc}</div>
+                                <div class="workflow-info">参数: stock_code, quantity, cost (股票相关)</div>
+                            `;
+                        }
+                        
+                        infoText += `${workflow.name}:\n`;
+                        infoText += `标题: ${workflowTitle}\n`;
+                        infoText += `描述: ${workflowDesc}\n`;
+                        infoText += `参数结构: ${JSON.stringify(paramsData.user_input_form || workflow.params, null, 2)}\n\n`;
+                    } else {
+                        throw new Error(`HTTP错误 - Info: ${infoResponse.status}, Params: ${paramsResponse.status}`);
+                    }
+                } catch (error) {
+                    hasError = true;
+                    const errorMsg = `获取失败 - ${error.message}`;
+                    infoText += `${workflow.name}: ${errorMsg}\n\n`;
+                    
+                    // 更新界面显示错误状态
+                    if (key === 'qa') {
+                        document.getElementById('workflow1Info').innerHTML = `
+                            <strong>工作流 1:</strong> 获取失败
+                            <div class="workflow-info" style="color: #f44336;">错误: ${error.message}</div>
+                        `;
+                    } else if (key === 'stock') {
+                        document.getElementById('workflow2Info').innerHTML = `
+                            <strong>工作流 2:</strong> 获取失败
+                            <div class="workflow-info" style="color: #f44336;">错误: ${error.message}</div>
+                        `;
+                    }
+                }
+            }
+
+            if (hasError) {
+                throw new Error('部分或全部工作流信息获取失败');
+            }
+
+            document.getElementById('apiStatus').className = 'status success';
+            document.getElementById('apiStatus').textContent = '工作流信息获取完成！';
+            responseDiv.textContent = infoText;
+            
+            // 隐藏重试区域
+            document.getElementById('retrySection').style.display = 'none';
+        }
+
+        // 切换手动配置模式
+        function toggleManualConfig() {
+            const manualConfig = document.getElementById('manualConfig');
+            if (manualConfig.style.display === 'none' || !manualConfig.style.display) {
+                manualConfig.style.display = 'block';
+            } else {
+                manualConfig.style.display = 'none';
+            }
+        }
+
+        // 应用手动配置
+        function applyManualConfig() {
+            const baseUrl = document.getElementById('manualBaseUrl').value.trim();
+            const qaKey = document.getElementById('manualQaKey').value.trim();
+            const stockKey = document.getElementById('manualStockKey').value.trim();
+
+            if (!baseUrl || !qaKey || !stockKey) {
+                alert('请填写完整的配置信息');
+                return;
+            }
+
+            // 更新工作流配置
+            workflows.qa.baseUrl = baseUrl;
+            workflows.qa.key = qaKey;
+            workflows.stock.baseUrl = baseUrl;
+            workflows.stock.key = stockKey;
+
+            // 更新界面显示
+            document.getElementById('workflow1Info').innerHTML = `
+                <strong>工作流 1:</strong> 手动配置完成
+                <div class="workflow-info">已使用手动配置的参数</div>
+            `;
+            
+            document.getElementById('workflow2Info').innerHTML = `
+                <strong>工作流 2:</strong> 手动配置完成
+                <div class="workflow-info">已使用手动配置的参数</div>
+            `;
+
+            document.getElementById('apiStatus').className = 'status success';
+            document.getElementById('apiStatus').textContent = '手动配置已应用！';
+            document.getElementById('apiStatus').style.display = 'block';
+            
+            document.getElementById('apiResponse').textContent = `
+手动配置已应用:
+基础URL: ${baseUrl}
+Q&A工作流: 已配置
+股票工作流: 已配置
+
+现在可以尝试执行智能工作流。
+            `;
+
+            // 隐藏手动配置面板
+            document.getElementById('manualConfig').style.display = 'none';
+            document.getElementById('retrySection').style.display = 'none';
+        }
+
+        // 页面加载时的初始化
         document.addEventListener('DOMContentLoaded', function() {
-            getWorkflowsInfo();
+            // 检测移动设备并显示提示
+            if (isMobileDevice()) {
+                console.log('检测到移动设备');
+                
+                // 添加移动端特定的初始化逻辑
+                setTimeout(() => {
+                    getWorkflowsInfo();
+                }, 1000); // 稍微延迟以确保网络就绪
+            } else {
+                getWorkflowsInfo();
+            }
         });
     </script>
 </body>
