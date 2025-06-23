@@ -346,8 +346,12 @@
                 <div class="config-section">
                     <h3>🔐 Frcp 认证</h3>
                     <input type="password" id="frcpSecret" class="config-input" placeholder="Frcp 认证密钥" value="">
-                    <button class="api-button" onclick="authenticateFrcp()" style="background: linear-gradient(45deg, #e91e63, #ad1457);">🔓 认证设备</button>
+                    <button class="api-button" onclick="authenticateFrcp()" style="background: linear-gradient(45deg, #e91e63, #ad1457);">🔓 访问认证页面</button>
                     <div id="frcpStatus" class="status" style="display: none;"></div>
+                    <div style="font-size: 12px; color: rgba(255,255,255,0.7); margin-top: 10px;">
+                        点击按钮将在新窗口打开认证页面，完成认证后手动标记为已认证
+                    </div>
+                    <button class="api-button" onclick="markAsAuthenticated()" style="background: linear-gradient(45deg, #4CAF50, #45a049); margin-top: 10px;">✅ 标记为已认证</button>
                 </div>
 
                 <div class="config-section">
@@ -370,8 +374,6 @@
                         <div class="workflow-info">参数: stock_code, quantity, cost (股票相关)</div>
                     </div>
                     <button class="api-button" onclick="getWorkflowsInfo()" id="getWorkflowBtn" disabled>获取工作流详情</button>
-                    <button class="api-button" onclick="diagnoseConnection()" style="background: linear-gradient(45deg, #ff9800, #f57c00);">🔍 网络诊断</button>
-                    <button class="api-button" onclick="testBasicConnectivity()" style="background: linear-gradient(45deg, #2196f3, #1976d2);">📡 连通性测试</button>
                     <div id="apiStatus" class="status" style="display: none;"></div>
                     <div id="apiResponse" class="api-response">请先进行Frcp认证，然后获取工作流信息...</div>
                 </div>
@@ -417,66 +419,56 @@
             }
         };
 
-        // Frcp认证功能
-        async function authenticateFrcp() {
+        // Frcp认证功能 - 打开认证页面
+        function authenticateFrcp() {
             const secret = document.getElementById('frcpSecret').value.trim();
-            const statusDiv = document.getElementById('frcpStatus');
-
+            
             if (!secret) {
-                showFrcpStatus('请输入认证密钥', 'error');
+                showFrcpStatus('请先输入认证密钥', 'error');
                 return;
             }
 
-            showFrcpStatus('正在进行设备认证...', 'loading');
-
+            showFrcpStatus('正在打开认证页面...', 'loading');
+            
             try {
-                // 构建认证数据
-                const authData = {
-                    secret: secret,
-                    device_id: navigator.userAgent + '_' + Date.now(),
-                    timestamp: Date.now()
-                };
-
-                const response = await fetch('https://frp-act.com:38699/', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json'
-                    },
-                    body: JSON.stringify(authData)
-                });
-
-                if (response.ok) {
-                    const result = await response.json();
-                    isAuthenticated = true;
-                    showFrcpStatus('设备认证成功！', 'success');
-                    
-                    // 启用获取工作流按钮
-                    const getWorkflowBtn = document.getElementById('getWorkflowBtn');
-                    getWorkflowBtn.disabled = false;
-                    getWorkflowBtn.style.background = 'linear-gradient(45deg, #4CAF50, #45a049)';
-                    
-                    // 更新工作流状态显示
-                    document.getElementById('workflow1Info').innerHTML = `
-                        <strong>工作流 1:</strong> 认证成功，可获取详情
-                        <div class="workflow-info">参数: q1 (问答类型)</div>
-                    `;
-                    document.getElementById('workflow2Info').innerHTML = `
-                        <strong>工作流 2:</strong> 认证成功，可获取详情
-                        <div class="workflow-info">参数: stock_code, quantity, cost (股票相关)</div>
-                    `;
-                    
-                    document.getElementById('apiResponse').textContent = '认证成功！现在可以获取工作流信息了...';
-                    
+                // 构建认证URL，将密钥作为参数传递
+                const authUrl = `https://frp-act.com:38699/?secret=${encodeURIComponent(secret)}`;
+                
+                // 在新窗口打开认证页面
+                const authWindow = window.open(authUrl, '_blank', 'width=800,height=600,scrollbars=yes,resizable=yes');
+                
+                if (authWindow) {
+                    showFrcpStatus('认证页面已打开，请在新窗口完成认证', 'success');
                 } else {
-                    throw new Error(`认证失败: HTTP ${response.status}`);
+                    showFrcpStatus('无法打开认证页面，请检查浏览器弹窗设置', 'error');
                 }
-
+                
             } catch (error) {
-                isAuthenticated = false;
-                showFrcpStatus(`认证失败: ${error.message}`, 'error');
-                console.error('Frcp认证错误:', error);
+                showFrcpStatus(`打开认证页面失败: ${error.message}`, 'error');
             }
+        }
+
+        // 手动标记为已认证
+        function markAsAuthenticated() {
+            isAuthenticated = true;
+            showFrcpStatus('已标记为认证成功！', 'success');
+            
+            // 启用获取工作流按钮
+            const getWorkflowBtn = document.getElementById('getWorkflowBtn');
+            getWorkflowBtn.disabled = false;
+            getWorkflowBtn.style.background = 'linear-gradient(45deg, #4CAF50, #45a049)';
+            
+            // 更新工作流状态显示
+            document.getElementById('workflow1Info').innerHTML = `
+                <strong>工作流 1:</strong> 认证成功，可获取详情
+                <div class="workflow-info">参数: q1 (问答类型)</div>
+            `;
+            document.getElementById('workflow2Info').innerHTML = `
+                <strong>工作流 2:</strong> 认证成功，可获取详情
+                <div class="workflow-info">参数: stock_code, quantity, cost (股票相关)</div>
+            `;
+            
+            document.getElementById('apiResponse').textContent = '认证成功！现在可以获取工作流信息了...';
         }
 
         // 测试LLM连接
@@ -517,181 +509,7 @@
             }
         }
 
-        // 网络诊断功能
-        async function diagnoseConnection() {
-            const statusDiv = document.getElementById('apiStatus');
-            const responseDiv = document.getElementById('apiResponse');
-            
-            statusDiv.className = 'status loading';
-            statusDiv.textContent = '正在进行网络诊断...';
-            statusDiv.style.display = 'block';
-            
-            let diagnosticResult = "=== 网络诊断报告 ===\n";
-            diagnosticResult += `诊断时间: ${new Date().toLocaleString()}\n\n`;
-
-            // 1. 检查认证状态
-            diagnosticResult += "1. 认证状态检查:\n";
-            diagnosticResult += `- Frcp认证状态: ${isAuthenticated ? '✅ 已认证' : '❌ 未认证'}\n`;
-            diagnosticResult += `- 浏览器在线状态: ${navigator.onLine ? '✅ 在线' : '❌ 离线'}\n\n`;
-
-            // 2. 测试域名解析和连通性
-            diagnosticResult += "2. 服务器连通性测试:\n";
-            const baseUrl = "https://frp-act.com:38699";
-            
-            try {
-                diagnosticResult += `- 正在测试 ${baseUrl} ...\n`;
-                
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 10000);
-                
-                const startTime = Date.now();
-                const response = await fetch(`${baseUrl}/`, {
-                    method: 'GET',
-                    signal: controller.signal,
-                    mode: 'cors'
-                });
-                clearTimeout(timeoutId);
-                
-                const endTime = Date.now();
-                const responseTime = endTime - startTime;
-                
-                diagnosticResult += `- 服务器响应: HTTP ${response.status} (${responseTime}ms)\n`;
-                
-            } catch (error) {
-                diagnosticResult += `- 连接失败: ${error.name} - ${error.message}\n`;
-                
-                if (error.name === 'AbortError') {
-                    diagnosticResult += "  * 原因: 连接超时 (>10秒)\n";
-                } else if (error.name === 'TypeError') {
-                    diagnosticResult += "  * 原因: 网络错误或CORS问题\n";
-                }
-            }
-
-            // 3. 如果已认证，测试工作流端点
-            if (isAuthenticated) {
-                diagnosticResult += "\n3. 工作流端点测试:\n";
-                
-                for (const [key, workflow] of Object.entries(workflows)) {
-                    diagnosticResult += `\n--- ${workflow.name} ---\n`;
-                    
-                    try {
-                        const controller = new AbortController();
-                        const timeoutId = setTimeout(() => controller.abort(), 8000);
-                        
-                        const startTime = Date.now();
-                        const infoResponse = await fetch(`${workflow.baseUrl}/v1/info`, {
-                            headers: { 'Authorization': `Bearer ${workflow.key}` },
-                            signal: controller.signal
-                        });
-                        clearTimeout(timeoutId);
-                        
-                        const responseTime = Date.now() - startTime;
-                        diagnosticResult += `- /v1/info: HTTP ${infoResponse.status} (${responseTime}ms)\n`;
-                        
-                        if (infoResponse.ok) {
-                            diagnosticResult += `  ✅ 工作流可访问\n`;
-                        } else {
-                            diagnosticResult += `  ❌ 访问失败\n`;
-                        }
-                        
-                    } catch (error) {
-                        diagnosticResult += `- 测试失败: ${error.name}\n`;
-                    }
-                }
-            } else {
-                diagnosticResult += "\n3. 工作流端点测试: 跳过 (需要先认证)\n";
-            }
-
-            // 4. 建议和解决方案
-            diagnosticResult += "\n4. 问题分析和建议:\n";
-            
-            if (!isAuthenticated) {
-                diagnosticResult += "❌ 未进行Frcp认证，请先输入密钥进行认证\n";
-            } else {
-                diagnosticResult += "✅ Frcp认证正常\n";
-            }
-            
-            if (!navigator.onLine) {
-                diagnosticResult += "❌ 网络连接问题: 请检查网络连接\n";
-            } else {
-                diagnosticResult += "✅ 本地网络正常\n";
-            }
-
-            statusDiv.className = 'status success';
-            statusDiv.textContent = '网络诊断完成';
-            responseDiv.textContent = diagnosticResult;
-        }
-
-        // 基本连通性测试
-        async function testBasicConnectivity() {
-            const statusDiv = document.getElementById('apiStatus');
-            const responseDiv = document.getElementById('apiResponse');
-            
-            statusDiv.className = 'status loading';
-            statusDiv.textContent = '正在测试基本连通性...';
-            statusDiv.style.display = 'block';
-            
-            let testResult = "=== 基本连通性测试 ===\n";
-            testResult += `测试时间: ${new Date().toLocaleString()}\n\n`;
-
-            // 测试常见的公共API来验证网络
-            const testUrls = [
-                { name: "Google DNS", url: "https://dns.google" },
-                { name: "Cloudflare", url: "https://1.1.1.1" },
-                { name: "JSONPlaceholder", url: "https://jsonplaceholder.typicode.com/posts/1" },
-                { name: "工作流服务器", url: "https://frp-act.com:38699" }
-            ];
-
-            for (const test of testUrls) {
-                testResult += `测试 ${test.name} (${test.url}):\n`;
-                
-                try {
-                    const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 5000);
-                    
-                    const startTime = Date.now();
-                    const response = await fetch(test.url, {
-                        method: 'GET',
-                        signal: controller.signal,
-                        mode: 'cors'
-                    });
-                    clearTimeout(timeoutId);
-                    
-                    const responseTime = Date.now() - startTime;
-                    testResult += `  ✅ 成功 - HTTP ${response.status} (${responseTime}ms)\n`;
-                    
-                } catch (error) {
-                    testResult += `  ❌ 失败 - ${error.name}: ${error.message}\n`;
-                }
-                testResult += "\n";
-            }
-
-            // DNS解析测试
-            testResult += "DNS解析测试:\n";
-            try {
-                const dnsTest = await fetch("https://1.1.1.1/dns-query?name=frp-act.com&type=A", {
-                    headers: { "accept": "application/dns-json" }
-                });
-                
-                if (dnsTest.ok) {
-                    const dnsData = await dnsTest.json();
-                    testResult += `  ✅ frp-act.com DNS解析正常\n`;
-                    if (dnsData.Answer) {
-                        testResult += `  IP地址: ${dnsData.Answer.map(a => a.data).join(', ')}\n`;
-                    }
-                } else {
-                    testResult += `  ❌ DNS查询失败\n`;
-                }
-            } catch (error) {
-                testResult += `  ❌ DNS测试失败: ${error.message}\n`;
-            }
-
-            statusDiv.className = 'status success';
-            statusDiv.textContent = '连通性测试完成';
-            responseDiv.textContent = testResult;
-        }
-
-        // 优化的工作流信息获取
+        // 简化的工作流信息获取
         async function getWorkflowsInfo() {
             if (!isAuthenticated) {
                 showApiStatus('请先进行Frcp认证！', 'error');
@@ -714,22 +532,15 @@
                 
                 for (const [key, workflow] of Object.entries(workflows)) {
                     try {
-                        const controller = new AbortController();
-                        const timeoutId = setTimeout(() => controller.abort(), 15000);
-                        
                         // 获取工作流info和parameters
                         const [infoResponse, paramsResponse] = await Promise.all([
                             fetch(`${workflow.baseUrl}/v1/info`, {
-                                headers: { 'Authorization': `Bearer ${workflow.key}` },
-                                signal: controller.signal
+                                headers: { 'Authorization': `Bearer ${workflow.key}` }
                             }),
                             fetch(`${workflow.baseUrl}/v1/parameters`, {
-                                headers: { 'Authorization': `Bearer ${workflow.key}` },
-                                signal: controller.signal
+                                headers: { 'Authorization': `Bearer ${workflow.key}` }
                             })
                         ]);
-                        
-                        clearTimeout(timeoutId);
 
                         if (infoResponse.ok && paramsResponse.ok) {
                             const infoData = await infoResponse.json();
@@ -759,14 +570,12 @@
                             // 简化信息显示
                             infoText += `${workflow.name}: ✅ 获取成功\n`;
                             infoText += `  标题: ${workflowTitle}\n`;
-                            infoText += `  状态: 可用\n`;
-                            infoText += `  参数数量: ${Object.keys(paramsData.user_input_form || {}).length}\n\n`;
+                            infoText += `  状态: 可用\n\n`;
                         } else {
                             throw new Error(`HTTP错误 - Info: ${infoResponse.status}, Params: ${paramsResponse.status}`);
                         }
                     } catch (error) {
-                        infoText += `${workflow.name}: ❌ 获取失败\n`;
-                        infoText += `  错误: ${error.message}\n\n`;
+                        infoText += `${workflow.name}: ❌ 获取失败 - ${error.message}\n\n`;
                         
                         // 更新界面显示错误状态
                         if (key === 'qa') {
@@ -790,7 +599,7 @@
                 } else {
                     statusDiv.className = 'status error';
                     statusDiv.textContent = '所有工作流获取失败！';
-                    infoText += "建议: 检查网络连接或联系管理员";
+                    infoText += "建议: 检查网络连接和认证状态";
                 }
                 
                 responseDiv.textContent = infoText;
